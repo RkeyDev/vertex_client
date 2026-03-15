@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+/* Global styles */
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Define Alasti font */
+@font-face {
+  font-family: 'Alasti';
+  src: url('/fonts/Alasti-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap; /* Best practice for performance */
+}
+
+@theme {
+  /* This overwrites the default 'sans' font stack with Alasti */
+  --font-sans: "Alasti", ui-sans-serif, system-ui, sans-serif;
+}
