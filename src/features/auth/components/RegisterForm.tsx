@@ -30,6 +30,33 @@ const RegisterForm: React.FC = () => {
         <Input label="Confirm Password" type="password" {...register('confirmPassword')} error={errors.confirmPassword?.message} placeholder='Same as password' />
       </div>
 
+    <div className="flex flex-col space-y-3 mt-6">
+        <div className="flex items-start space-x-3">
+          <input 
+            type="checkbox" 
+            id="terms" 
+            {...register('terms')}
+            className="w-5 h-5 mt-0.5 rounded border-gray-300 text-blue-500 focus:ring-blue-400 cursor-pointer"
+          />
+          <label htmlFor="terms" className="text-gray-700 font-medium cursor-pointer select-none">
+            I agree to the <span className="text-blue-500 hover:underline">Terms of Service</span>
+          </label>
+        </div>
+        {errors.terms && <p className="text-red-500 text-xs px-8">{errors.terms.message}</p>}
+
+        <div className="flex items-center space-x-3">
+          <input 
+            type="checkbox" 
+            id="rememberMe" 
+            {...register('rememberMe')}
+            className="w-5 h-5 rounded border-gray-300 text-blue-500 focus:ring-blue-400 cursor-pointer"
+          />
+          <label htmlFor="rememberMe" className="text-gray-700 font-medium cursor-pointer select-none">
+            Remember Me
+          </label>
+        </div>
+      </div>
+
       <div className="flex flex-col items-center pt-4">
         <button 
           type="submit" 

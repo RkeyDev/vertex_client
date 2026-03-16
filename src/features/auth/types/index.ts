@@ -15,11 +15,15 @@ export const registerSchema = z.object({
     .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
     .regex(/[0-9]/, 'Password must contain at least one number')
     .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character (@, #, $, etc.)'),
-  confirmPassword: z.string()
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
-});
+  confirmPassword: z.string(),
+  terms: z.boolean().refine((val) => val === true, {
+      message: "You must agree to the Terms of Service",
+    }),
+    rememberMe: z.boolean().optional(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ["confirmPassword"],
+  });
 
-// Automatically generate a TS type from the Zod schema
 export type RegisterFormData = z.infer<typeof registerSchema>;
