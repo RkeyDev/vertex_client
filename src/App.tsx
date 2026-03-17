@@ -3,6 +3,7 @@ import RegisterPage from './pages/RegisterPage';
 import LoginPage from './pages/LoginPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import DashboardPage from './pages/DashboardPage';
+import BoardPage from './pages/BoardPage';
 
 
 /**
@@ -23,6 +24,9 @@ function App() {
 
         {/* Dashboard routes */}
         <Route path="/dashboard" element={<DashboardPage />} />
+
+        {/* Board routes */}
+        <Route path="/board" element={<BoardPage />} />
 
         {/* 404 - Page Not Found fallback */}
         <Route path="*" element={
