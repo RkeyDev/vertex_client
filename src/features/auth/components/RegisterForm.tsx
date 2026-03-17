@@ -26,7 +26,14 @@ const RegisterForm: React.FC = () => {
         <Input label="Last Name" {...register('lastName')} error={errors.lastName?.message} placeholder='E.g E.g Smith' />
         <Input label="Email" type="email" {...register('email')} error={errors.email?.message} placeholder='E.g jhonsmith123@gmail.com' />
         <Input label="Username" {...register('username')} error={errors.username?.message} placeholder='E.g JhonS' />
-        <Input label="Password" type="password" {...register('password')} error={errors.password?.message} placeholder='E.g aaBBccDD11223344!' />
+        <Input 
+          label="Password" 
+          type="password" 
+          hasHelp={true}
+          {...register('password')} 
+          error={errors.password?.message} 
+          placeholder='E.g aaBBccDD11223344!' 
+        />
         <Input label="Confirm Password" type="password" {...register('confirmPassword')} error={errors.confirmPassword?.message} placeholder='Same as password' />
       </div>
 
@@ -61,7 +68,7 @@ const RegisterForm: React.FC = () => {
         <button 
           type="submit" 
           disabled={isSubmitting}
-          className="bg-[#2C9B44] hover:bg-[#2C863F] text-white font-bold py-2 px-8 rounded disabled:opacity-50"
+          className="bg-[#539160] hover:bg-[#467a51] text-white font-bold py-2.5 px-16 rounded-lg text-2xl shadow-md transition-all active:scale-95 disabled:opacity-50"
         >
           {isSubmitting ? 'Loading...' : 'Create Account'}
         </button>

@@ -20,3 +20,16 @@ body {
   /* This overwrites the default 'sans' font stack with Alasti */
   --font-sans: "Alasti", ui-sans-serif, system-ui, sans-serif;
 }
+@theme {
+  /* Define colors */
+  --color-vertex-bg-start: #A5C7E9;
+  --color-vertex-bg-end: #D1D9E6;
+  --color-vertex-card: #EAEAEA;
+}
+
+@layer components {
+  .vertex-auth-screen {
+    @apply min-h-screen flex items-center justify-center p-4;
+    background: linear-gradient(to bottom, var(--color-vertex-bg-start), var(--color-vertex-bg-end));
+  }
+}

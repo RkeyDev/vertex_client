@@ -1,10 +1,11 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import RegisterPage from './pages/RegisterPage';
+import LoginPage from './pages/LoginPage';
+import VerifyEmailPage from './pages/VerifyEmailPage';
 
 /**
  * The Root App Component.
- * This is where we define the high-level routing and global providers.
+ * This is where the high-level routing and global providers are defined.
  */
 function App() {
   return (
@@ -15,11 +16,8 @@ function App() {
         
         {/* Auth Routes */}
         <Route path="/register" element={<RegisterPage />} />
-        
-        {/* TODO add these later:
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/canvas" element={<CanvasPage />} /> 
-        */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
 
         {/* 404 - Page Not Found fallback */}
         <Route path="*" element={
