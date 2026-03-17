@@ -2,6 +2,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import RegisterPage from './pages/RegisterPage';
 import LoginPage from './pages/LoginPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
+import DashboardPage from './pages/DashboardPage';
+
 
 /**
  * The Root App Component.
@@ -18,6 +20,9 @@ function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
+
+        {/* Dashboard routes */}
+        <Route path="/dashboard" element={<DashboardPage />} />
 
         {/* 404 - Page Not Found fallback */}
         <Route path="*" element={
