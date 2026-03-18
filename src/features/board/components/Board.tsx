@@ -16,6 +16,12 @@ interface BoardProps {
   onDragEnd: (e: KonvaEventObject<DragEvent>, id: string) => void;
 }
 
+/**
+ * Board Component
+ * * Renders the main drawing canvas for UML components. 
+ * Uses React-Konva for high-performance canvas manipulation and 
+ * standard CSS for the background grid to keep the canvas layer clean.
+ */
 const Board: React.FC<BoardProps> = memo(({
   components,
   selectedId,
@@ -28,18 +34,28 @@ const Board: React.FC<BoardProps> = memo(({
   onDragEnd,
 }) => {
   
-  // Use CSS for the grid. This is significantly faster than Konva Rects for large areas.
+  // Base grid size in pixels
+  const GRID_STEP = 40;
+  const scaledGridSize = GRID_STEP * stageScale;
+
   const gridStyle: React.CSSProperties = {
-    flex: 1,
+    width: '100%',
+    height: '100%',
     backgroundColor: '#ffffff',
+    /* Using two linear gradients to create a cross-hatch grid.
+       The first defines horizontal lines, the second defines vertical lines.
+    */
     backgroundImage: `
-      linear-gradient(#1a6abe1a 1px, transparent 1px),
-      linear-gradient(90deg, #1a6abe1a 1px, transparent 1px)
+      linear-gradient(to right, rgb(26, 105, 190) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(26, 105, 190) 1px, transparent 1px)
     `,
-    backgroundSize: `${40 * stageScale}px ${40 * stageScale}px`,
+    backgroundSize: `${scaledGridSize}px ${scaledGridSize}px`,
+
     backgroundPosition: `${stagePos.x}px ${stagePos.y}px`,
     cursor: 'crosshair',
     overflow: 'hidden',
+    position: 'relative',
+    display: 'flex'
   };
 
   return (
