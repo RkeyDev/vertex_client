@@ -17,3 +17,12 @@ export interface UmlComponent {
   type: ComponentType; 
   content: string; 
 }
+
+export interface UmlArrow {
+  id: string;
+  fromId: string;
+  toId: string;
+  label?: string;
+  type: 'SOLID' | 'DASHED';
+  headType: 'ARROW' | 'TRIANGLE' | 'NONE';
+}
