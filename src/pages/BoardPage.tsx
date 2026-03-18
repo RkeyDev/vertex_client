@@ -1,16 +1,27 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { type KonvaEventObject } from 'konva/lib/Node';
 
 import Sidebar from '../features/board/components/SideBar';
 import TopBar from '../features/board/components/TopBar';
 import PropertiesPanel from '../features/board/components/PropertiesPanel';
-import Board from '../features/board/components//Board';
+import Board from '../features/board/components/Board';
 
-import { ComponentType, type UmlComponent } from '../features/board/types/board.types';
+import { 
+  ComponentType, 
+  type UmlComponent, 
+  type UmlArrow, 
+  type DraftConnection, 
+  type PortPosition 
+} from '../features/board/types/board.types';
 
 const BoardPage: React.FC = () => {
   const [components, setComponents] = useState<UmlComponent[]>([]);
+  const [arrows, setArrows] = useState<UmlArrow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Connection drafting state
+  const [draftConnection, setDraftConnection] = useState<DraftConnection | null>(null);
+  const hoveredPortRef = useRef<{ nodeId: string, port: PortPosition } | null>(null);
 
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [stageScale, setStageScale] = useState(1);
@@ -26,16 +37,18 @@ const BoardPage: React.FC = () => {
 
   const addComponent = useCallback((type: ComponentType) => {
     const newComp: UmlComponent = {
-      id: `temp-${Date.now()}`,
+      id: `comp-${Date.now()}`,
       xPox: Math.round((-stagePos.x + stageSize.width / 2) / stageScale - 75),
       yPos: Math.round((-stagePos.y + stageSize.height / 2) / stageScale - 50),
       width: 150,
       height: 100,
       type: type,
-      content: "New "+ type.toLowerCase().charAt(0).toUpperCase() + type.slice(1).toLowerCase(),
+      content: "New " + type.toLowerCase().charAt(0).toUpperCase() + type.slice(1).toLowerCase(),
     };
     setComponents((prev) => [...prev, newComp]);
   }, [stagePos, stageScale, stageSize]);
+
+  // --- Stage Handlers ---
 
   const handleStageDrag = useCallback((e: KonvaEventObject<DragEvent>) => {
     if (e.target === e.target.getStage()) {
@@ -86,6 +99,63 @@ const BoardPage: React.FC = () => {
     );
   }, [selectedId]);
 
+  // --- Connection Logic ---
+
+  const handlePortMouseDown = useCallback((nodeId: string, port: PortPosition, x: number, y: number) => {
+    setDraftConnection({ startNodeId: nodeId, startPort: port, currentX: x, currentY: y });
+  }, []);
+
+  const handlePortMouseEnter = useCallback((nodeId: string, port: PortPosition) => {
+    hoveredPortRef.current = { nodeId, port };
+  }, []);
+
+  const handlePortMouseLeave = useCallback(() => {
+    hoveredPortRef.current = null;
+  }, []);
+
+  const handleStageMouseMove = useCallback((e: KonvaEventObject<MouseEvent>) => {
+    if (!draftConnection) return;
+    const stage = e.target.getStage();
+    if (!stage) return;
+    
+    // Map pointer position to absolute canvas coordinates considering scale/pan
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+    
+    const currentX = (pointer.x - stage.x()) / stage.scaleX();
+    const currentY = (pointer.y - stage.y()) / stage.scaleY();
+
+    setDraftConnection(prev => prev ? { ...prev, currentX, currentY } : null);
+  }, [draftConnection]);
+
+  const handleStageMouseUp = useCallback((e: KonvaEventObject<MouseEvent>) => {
+    if (!draftConnection) return;
+
+    const targetPort = hoveredPortRef.current;
+    
+    // If we dropped on a valid port and it's not the same node
+    if (targetPort && targetPort.nodeId !== draftConnection.startNodeId) {
+      const newArrow: UmlArrow = {
+        id: `arrow-${Date.now()}`,
+        fromId: draftConnection.startNodeId,
+        fromPort: draftConnection.startPort,
+        toId: targetPort.nodeId,
+        toPort: targetPort.port,
+        type: 'SOLID',
+        headType: 'ARROW'
+      };
+      setArrows(prev => [...prev, newArrow]);
+    }
+
+    setDraftConnection(null);
+  }, [draftConnection]);
+
+  const handleArrowControlPointDragEnd = useCallback((arrowId: string, newPos: { x: number, y: number }) => {
+    setArrows(prev => prev.map(a => 
+      a.id === arrowId ? { ...a, controlPoint: newPos } : a
+    ));
+  }, []);
+
   useEffect(() => {
     const handleResize = () => {
       setStageSize({
@@ -104,7 +174,9 @@ const BoardPage: React.FC = () => {
         <TopBar />
         <Board
           components={components}
+          arrows={arrows}
           selectedId={selectedId}
+          draftConnection={draftConnection}
           stageSize={stageSize}
           stagePos={stagePos}
           stageScale={stageScale}
@@ -112,6 +184,12 @@ const BoardPage: React.FC = () => {
           onWheel={handleWheel}
           onSelect={setSelectedId}
           onDragEnd={handleComponentDragEnd}
+          onStageMouseMove={handleStageMouseMove}
+          onStageMouseUp={handleStageMouseUp}
+          onPortMouseDown={handlePortMouseDown}
+          onPortMouseEnter={handlePortMouseEnter}
+          onPortMouseLeave={handlePortMouseLeave}
+          onArrowControlPointDragEnd={handleArrowControlPointDragEnd}
         />
         <PropertiesPanel
           selectedComponent={selectedComponent}
