@@ -258,13 +258,13 @@ const BoardPage: React.FC = () => {
     </div>
 
     {components.find(c => c.id === selectedId) && (
-      <div className="space-y-6">
+      <div className="space-y-6 overflow-y-auto pr-2">
         {/* Title / Content Input */}
         <div>
           <label className="block text-sm font-bold text-gray-600 uppercase mb-2">Content</label>
           <input 
             type="text"
-            className="w-full p-2 border-2 border-gray-400 rounded focus:border-blue-500 outline-none font-bold"
+            className="w-full p-2 border-2 border-gray-400 rounded focus:border-blue-500 outline-none font-bold shadow-inner"
             value={components.find(c => c.id === selectedId)?.content || ''}
             onChange={(e) => {
               setComponents(prev => prev.map(c => 
@@ -275,42 +275,81 @@ const BoardPage: React.FC = () => {
         </div>
 
         {/* Dimension Controls */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-bold text-gray-600 uppercase mb-2">Width</label>
-            <input 
-              type="number"
-              className="w-full p-2 border-2 border-gray-400 rounded outline-none"
-              value={components.find(c => c.id === selectedId)?.width || 0}
-              onChange={(e) => {
-                setComponents(prev => prev.map(c => 
-                  c.id === selectedId ? { ...c, width: parseInt(e.target.value) || 0 } : c
-                ));
-              }}
-            />
+        <section>
+          <h3 className="text-xs font-black text-blue-600 uppercase mb-4 tracking-widest">Dimensions</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Width</label>
+              <input 
+                type="number"
+                className="w-full p-2 border-2 border-gray-400 rounded outline-none focus:border-blue-400 bg-white"
+                value={components.find(c => c.id === selectedId)?.width || 0}
+                onChange={(e) => {
+                  setComponents(prev => prev.map(c => 
+                    c.id === selectedId ? { ...c, width: parseInt(e.target.value) || 0 } : c
+                  ));
+                }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Height</label>
+              <input 
+                type="number"
+                className="w-full p-2 border-2 border-gray-400 rounded outline-none focus:border-blue-400 bg-white"
+                value={components.find(c => c.id === selectedId)?.height || 0}
+                onChange={(e) => {
+                  setComponents(prev => prev.map(c => 
+                    c.id === selectedId ? { ...c, height: parseInt(e.target.value) || 0 } : c
+                  ));
+                }}
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-bold text-gray-600 uppercase mb-2">Height</label>
-            <input 
-              type="number"
-              className="w-full p-2 border-2 border-gray-400 rounded outline-none"
-              value={components.find(c => c.id === selectedId)?.height || 0}
-              onChange={(e) => {
-                setComponents(prev => prev.map(c => 
-                  c.id === selectedId ? { ...c, height: parseInt(e.target.value) || 0 } : c
-                ));
-              }}
-            />
-          </div>
-        </div>
+        </section>
 
-        <div className="pt-8 border-t border-gray-300">
-          <p className="text-xs text-gray-500 italic">
-            Entity Type: {components.find(c => c.id === selectedId)?.type}
-          </p>
-          <p className="text-xs text-gray-500 italic">
-            ID: {selectedId}
-          </p>
+        {/* Position Controls */}
+        <section className="pt-4 border-t border-gray-300">
+          <h3 className="text-xs font-black text-blue-600 uppercase mb-4 tracking-widest">Position</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">X Position</label>
+              <input 
+                type="number"
+                className="w-full p-2 border-2 border-gray-400 rounded outline-none focus:border-blue-400 bg-white"
+                value={components.find(c => c.id === selectedId)?.xPox || 0}
+                onChange={(e) => {
+                  setComponents(prev => prev.map(c => 
+                    c.id === selectedId ? { ...c, xPox: Math.round(parseFloat(e.target.value)) || 0 } : c
+                  ));
+                }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Y Position</label>
+              <input 
+                type="number"
+                className="w-full p-2 border-2 border-gray-400 rounded outline-none focus:border-blue-400 bg-white"
+                value={components.find(c => c.id === selectedId)?.yPos || 0}
+                onChange={(e) => {
+                  setComponents(prev => prev.map(c => 
+                    c.id === selectedId ? { ...c, yPos: Math.round(parseFloat(e.target.value)) || 0 } : c
+                  ));
+                }}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Metadata Footer */}
+        <div className="pt-8 mt-auto border-t border-gray-300 space-y-1">
+          <div className="flex justify-between text-[10px] text-gray-400 uppercase font-bold">
+            <span>Type</span>
+            <span>{components.find(c => c.id === selectedId)?.type}</span>
+          </div>
+          <div className="flex justify-between text-[10px] text-gray-400 uppercase font-bold">
+            <span>ID</span>
+            <span className="truncate ml-4">{selectedId}</span>
+          </div>
         </div>
       </div>
     )}
