@@ -11,7 +11,7 @@ import CanvasNode from './CanvasNode';
 import CanvasArrow, { getPortCoordinates } from './CanvasArrow';
 
 interface BoardProps {
-  components: UmlComponent[];
+  components: UmlComponent[]; 
   arrows: UmlArrow[];
   selectedId: string | null;
   draftConnection: DraftConnection | null;
@@ -39,16 +39,23 @@ const Board: React.FC<BoardProps> = memo(({
   onStageMouseMove, onStageMouseUp, onPortMouseDown, onPortMouseEnter, onPortMouseLeave,
   onArrowControlPointDragMove, onArrowHandleDragMove, onArrowHandleDragEnd,
 }) => {
-  const GRID_STEP = 40;
-  const scaledGridSize = GRID_STEP * stageScale;
+  // Grid Constants
+  const GRID_SIZE = 40;
+  const scaledGridSize = GRID_SIZE * stageScale;
 
+  // Blue Blueprint Style Grid
   const gridStyle: React.CSSProperties = {
-    width: '100%', height: '100%', backgroundColor: '#ffffff',
-    backgroundImage: `linear-gradient(to right, rgb(39, 107, 159) 1px, transparent 1px), linear-gradient(to bottom, rgb(39, 107, 159) 1px, transparent 1px)`,
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#ffffff', // Deep navy background
+    backgroundImage: `
+      linear-gradient(to right, rgb(59, 131, 246) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(59, 131, 246) 1px, transparent 1px)
+    `,
     backgroundSize: `${scaledGridSize}px ${scaledGridSize}px`,
     backgroundPosition: `${stagePos.x}px ${stagePos.y}px`,
-    cursor: draftConnection ? 'crosshair' : 'default',
-    overflow: 'hidden', position: 'relative', display: 'flex'
   };
 
   const getDraftStartCoords = () => {
@@ -70,13 +77,17 @@ const Board: React.FC<BoardProps> = memo(({
         onWheel={onWheel}
         onMouseMove={onStageMouseMove}
         onMouseUp={onStageMouseUp}
-        onClick={(e) => { if (e.target === e.target.getStage()) onSelect(null); }}
         scaleX={stageScale}
         scaleY={stageScale}
         x={stagePos.x}
         y={stagePos.y}
+        onClick={(e) => {
+          // Deselect if clicking the empty stage
+          if (e.target === e.target.getStage()) onSelect(null);
+        }}
       >
         <Layer>
+          {/* Render Connections */}
           {arrows.map((arrow) => (
             <CanvasArrow
               key={arrow.id}
@@ -91,23 +102,30 @@ const Board: React.FC<BoardProps> = memo(({
             />
           ))}
 
+          {/* Render Nodes */}
           {components.map((comp) => (
-            <CanvasNode
+            <CanvasNode 
               key={comp.id}
-              component={comp}
+              component={comp} 
               isSelected={selectedId === comp.id}
-              onClick={() => onSelect(comp.id!)}
-              onDragMove={(e) => onComponentDragMove(e, comp.id!)}
-              onDragEnd={(e) => onComponentDragEnd(e, comp.id!)}
+              onClick={() => onSelect(comp.id)}
+              onDragMove={(e: any) => onComponentDragMove(e, comp.id)}
+              onDragEnd={(e: any) => onComponentDragEnd(e, comp.id)}
               onPortMouseDown={onPortMouseDown}
               onPortMouseEnter={onPortMouseEnter}
               onPortMouseLeave={onPortMouseLeave}
             />
           ))}
 
+          {/* Render Active Connection Line */}
           {draftConnection && (
             <Arrow
-              points={[draftStart.x, draftStart.y, draftConnection.currentX, draftConnection.currentY]}
+              points={[
+                draftStart.x, 
+                draftStart.y, 
+                (draftConnection.currentX), 
+                (draftConnection.currentY)
+              ]}
               stroke="#3b82f6"
               strokeWidth={2}
               dash={[10, 5]}

@@ -8,13 +8,14 @@ import Board from '../features/board/components/Board';
 
 import { 
   ComponentType, 
-  type UmlComponent, 
+  type UmlComponent, // FIX: Use the union type
   type UmlArrow, 
   type DraftConnection, 
   type PortPosition 
 } from '../features/board/types/board.types';
 
 const BoardPage: React.FC = () => {
+  // FIX: State must allow the full union of components
   const [components, setComponents] = useState<UmlComponent[]>([]);
   const [arrows, setArrows] = useState<UmlArrow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -33,16 +34,43 @@ const BoardPage: React.FC = () => {
     [components, selectedId]
   );
 
+  /**
+   * Adds a new component to the board. 
+   * Uses a type-safe approach to initialize data based on ComponentType.
+   */
   const addComponent = useCallback((type: ComponentType) => {
-    const newComp: UmlComponent = {
-      id: `comp-${Date.now()}`,
+    const id = `comp-${Date.now()}`;
+    const baseProps = {
+      id,
       xPox: Math.round((-stagePos.x + stageSize.width / 2) / stageScale - 75),
       yPos: Math.round((-stagePos.y + stageSize.height / 2) / stageScale - 50),
       width: 150,
       height: 100,
-      type: type,
-      content: "New " + type.toLowerCase().charAt(0).toUpperCase() + type.slice(1).toLowerCase(),
     };
+
+    let newComp: UmlComponent;
+
+    // Factory logic to create the correct interface based on type
+    if (type === ComponentType.CLASS) {
+      newComp = {
+        ...baseProps,
+        type: ComponentType.CLASS,
+        data: { header: "New Class", attributes: [], methods: [] }
+      };
+    } else if (type === ComponentType.SERVER) {
+      newComp = {
+        ...baseProps,
+        type: ComponentType.SERVER,
+        data: { header: "New Server" }
+      };
+    } else {
+      newComp = {
+        ...baseProps,
+        type: ComponentType.DATABASE,
+        data: { header: "New Database" }
+      };
+    }
+
     setComponents((prev) => [...prev, newComp]);
   }, [stagePos, stageScale, stageSize]);
 
@@ -56,10 +84,11 @@ const BoardPage: React.FC = () => {
     );
   }, []);
 
+  // FIX: Update the type to Partial<UmlComponent>
   const handleUpdateComponent = useCallback((updates: Partial<UmlComponent>) => {
     if (!selectedId) return;
     setComponents((prev) =>
-      prev.map((c) => (c.id === selectedId ? { ...c, ...updates } : c))
+      prev.map((c) => (c.id === selectedId ? { ...c, ...updates } as UmlComponent : c))
     );
   }, [selectedId]);
 
@@ -81,15 +110,12 @@ const BoardPage: React.FC = () => {
     ));
   }, []);
 
-  // --- RECONNECTION LOGIC START ---
-
   const handleArrowHandleDragMove = useCallback((
     arrowId: string, 
     handleType: 'start' | 'end', 
     newPos: { x: number, y: number },
     e: KonvaEventObject<DragEvent>
   ) => {
-    // 1. Update visual position of the unattached handle
     setArrows((prev) => prev.map((a) => {
       if (a.id !== arrowId) return a;
       return handleType === 'start' 
@@ -97,14 +123,12 @@ const BoardPage: React.FC = () => {
         : { ...a, toId: null, toPort: undefined, toCoords: newPos };
     }));
 
-    // 2. Perform manual hit-test to find a port under the cursor
     const stage = e.target.getStage();
     if (!stage) return;
 
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
 
-    // Temporarily disable listening on the dragging handle so we can see what's under it
     e.target.listening(false);
     const intersectedNode = stage.getIntersection(pointer);
     e.target.listening(true);
@@ -128,7 +152,6 @@ const BoardPage: React.FC = () => {
       if (a.id !== arrowId) return a;
 
       if (target) {
-        // Successfully re-attached to a new port
         return handleType === 'start' 
           ? { ...a, fromId: target.nodeId, fromPort: target.port, fromCoords: undefined }
           : { ...a, toId: target.nodeId, toPort: target.port, toCoords: undefined };
@@ -138,8 +161,6 @@ const BoardPage: React.FC = () => {
     
     hoveredPortRef.current = null;
   }, []);
-
-  // --- RECONNECTION LOGIC END ---
 
   const handleStageMouseMove = useCallback((e: KonvaEventObject<MouseEvent>) => {
     if (!draftConnection) return;
@@ -217,10 +238,9 @@ const BoardPage: React.FC = () => {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+      if ((e.key === 'Delete') && selectedId) {
         setComponents((prev) => prev.filter((c) => c.id !== selectedId));
-        setArrows((prev) => prev.filter((a) => a.id !== selectedId));
-        setArrows((prev) => prev.filter((a) => a.fromId !== selectedId && a.toId !== selectedId));
+        setArrows((prev) => prev.filter((a) => a.id !== selectedId && a.fromId !== selectedId && a.toId !== selectedId));
         setSelectedId(null);
       }
     };
@@ -235,10 +255,10 @@ const BoardPage: React.FC = () => {
   }, [selectedId]);
 
   return (
-    <div className="flex h-screen w-screen bg-[#333] overflow-hidden font-sans select-none">
+    <div className="flex h-screen w-screen bg-[#1a1a1a] overflow-hidden font-sans select-none text-black">
       <Sidebar onAddComponent={addComponent} />
       
-      <main className="flex-1 flex flex-col relative">
+      <main className="flex-1 flex flex-col relative bg-white">
         <TopBar />
         
         <Board
