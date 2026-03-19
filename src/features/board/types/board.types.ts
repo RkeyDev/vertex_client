@@ -10,7 +10,7 @@ export type PortPosition = 'top' | 'right' | 'bottom' | 'left';
 
 export interface UmlComponent {
   id?: string;
-  xPox: number; // Retaining your original property name
+  xPox: number; 
   yPos: number; 
   width: number; 
   height: number; 
@@ -20,15 +20,17 @@ export interface UmlComponent {
 
 export interface UmlArrow {
   id: string;
-  fromId: string;
-  fromPort: PortPosition;
-  toId: string;
-  toPort: PortPosition;
-  label?: string;
+  fromId: string | null;
+  fromPort?: PortPosition;
+  fromCoords?: { x: number, y: number };
+
+  toId: string | null;
+  toPort?: PortPosition;
+  toCoords?: { x: number, y: number };
+
+  controlPoint?: { x: number; y: number } | null;
   type: 'SOLID' | 'DASHED';
   headType: 'ARROW' | 'TRIANGLE' | 'NONE';
-  // Custom control point for Bezier curves. If null, it defaults to a straight line.
-  controlPoint?: { x: number; y: number } | null;
 }
 
 export interface DraftConnection {
@@ -36,4 +38,10 @@ export interface DraftConnection {
   startPort: PortPosition;
   currentX: number;
   currentY: number;
+}
+
+// Added this interface for internal hit-test metadata
+export interface PortMetadata {
+  nodeId: string;
+  port: PortPosition;
 }
