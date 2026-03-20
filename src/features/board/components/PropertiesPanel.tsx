@@ -7,10 +7,16 @@ import {
 interface PropertiesPanelProps {
   selectedComponent: UmlComponent | undefined;
   onUpdate: (updates: Partial<UmlComponent>) => void;
+  onDelete: () => void; // Added delete prop
   onClose: () => void;
 }
 
-const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, onUpdate, onClose }) => {
+const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ 
+  selectedComponent, 
+  onUpdate, 
+  onDelete, 
+  onClose 
+}) => {
   if (!selectedComponent) return null;
 
   // --- Helper Functions ---
@@ -51,7 +57,6 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
     const data = selectedComponent.data || {};
     
     return Object.entries(data).map(([key, value]) => {
-      // Skip fontSize in the dynamic loop as we'll give it a dedicated UI section below
       if (key === 'fontSize') return null;
 
       if (Array.isArray(value)) {
@@ -95,7 +100,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
             </label>
             <input 
               type="text"
-              className="w-full p-2 border-2 border-gray-400 rounded focus:border-blue-500 outline-none font-bold bg-white"
+              className="w-full p-2 border-2 border-gray-400 rounded focus:border-blue-500 outline-none font-bold bg-white text-gray-800"
               value={value}
               onChange={(e) => updateDataField(key, e.target.value)}
             />
@@ -109,6 +114,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
 
   return (
     <aside className="absolute right-0 top-20 bottom-0 w-80 bg-[#F3F4F6] border-l border-gray-300 p-6 shadow-xl z-20 flex flex-col">
+      {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Properties</h2>
@@ -123,15 +129,14 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
         </button>
       </div>
 
+      {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto pr-2 space-y-8">
-        {/* Component Content (Title, Methods, etc.) */}
         <div className="space-y-6">
           {renderDataEditors()}
         </div>
 
         <hr className="border-gray-300" />
 
-        {/* Typography Section */}
         <section className="space-y-4">
           <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">Typography</h3>
           <div className="space-y-2">
@@ -152,13 +157,13 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
              <div className="flex gap-2">
                 <button 
                     onClick={() => updateDataField('fontSize', Math.max(8, ((selectedComponent.data as any)?.fontSize || 14) - 1))}
-                    className="flex-1 bg-white border border-gray-300 text-gray-600 text-xs py-1 rounded hover:bg-gray-50"
+                    className="flex-1 bg-white border border-gray-300 text-gray-600 text-[10px] py-1 rounded hover:bg-gray-50 uppercase font-bold"
                 >
                     smaller
                 </button>
                 <button 
                     onClick={() => updateDataField('fontSize', Math.min(72, ((selectedComponent.data as any)?.fontSize || 14) + 1))}
-                    className="flex-1 bg-white border border-gray-300 text-gray-600 text-xs py-1 rounded hover:bg-gray-50"
+                    className="flex-1 bg-white border border-gray-300 text-gray-600 text-[10px] py-1 rounded hover:bg-gray-50 uppercase font-bold"
                 >
                     larger
                 </button>
@@ -168,10 +173,8 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
 
         <hr className="border-gray-300" />
 
-        {/* Transform Properties */}
         <section className="space-y-4">
           <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">Transform</h3>
-          
           <div className="grid grid-cols-2 gap-4">
             <LayoutInput 
               label="Width" 
@@ -184,7 +187,6 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
               onChange={(val) => updateBaseField('height', val)} 
             />
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <LayoutInput 
               label="X Pos" 
@@ -198,6 +200,22 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
             />
           </div>
         </section>
+
+        {/* Delete Section */}
+        <section className="pt-4 pb-8">
+          <button 
+            onClick={onDelete}
+            className="w-full flex items-center justify-center gap-2 py-3 border-2 border-red-200 text-red-500 rounded-lg hover:bg-red-50 hover:border-red-500 transition-all font-bold text-sm uppercase tracking-widest"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Delete Component
+          </button>
+          <p className="text-[10px] text-gray-400 mt-2 text-center uppercase font-medium">
+            Shortcut: Press Del or Backspace
+          </p>
+        </section>
       </div>
     </aside>
   );
@@ -208,7 +226,7 @@ const LayoutInput: React.FC<{ label: string; value: number; onChange: (val: numb
     <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-tighter">{label}</label>
     <input 
       type="number"
-      className="w-full p-2 border border-gray-300 rounded bg-white text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+      className="w-full p-2 border border-gray-300 rounded bg-white text-sm focus:ring-1 focus:ring-blue-500 outline-none text-gray-700"
       value={value}
       onChange={(e) => onChange(parseInt(e.target.value) || 0)}
     />

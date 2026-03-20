@@ -16,13 +16,51 @@ import {
 
 import { getPortCoordinates } from '../features/board/components/CanvasArrow';
 
+// --- Utility ---
 const getDistance = (x1: number, y1: number, x2: number, y2: number) => {
   return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
 };
 
+// --- History Hook ---
+const useHistory = (initialState: { components: UmlComponent[], arrows: UmlArrow[] }) => {
+  const [state, setState] = useState(initialState);
+  const [past, setPast] = useState<typeof initialState[]>([]);
+  const [future, setFuture] = useState<typeof initialState[]>([]);
+
+  const takeSnapshot = useCallback(() => {
+    setPast((prev) => [...prev, state]);
+    setFuture([]);
+  }, [state]);
+
+  const undo = useCallback(() => {
+    if (past.length === 0) return;
+    const previous = past[past.length - 1];
+    const newPast = past.slice(0, past.length - 1);
+    setFuture((prev) => [state, ...prev]);
+    setPast(newPast);
+    setState(previous);
+  }, [past, state]);
+
+  const redo = useCallback(() => {
+    if (future.length === 0) return;
+    const next = future[0];
+    const newFuture = future.slice(1);
+    setPast((prev) => [...prev, state]);
+    setFuture(newFuture);
+    setState(next);
+  }, [future, state]);
+
+  return { state, setState, takeSnapshot, undo, redo };
+};
+
 const BoardPage: React.FC = () => {
-  const [components, setComponents] = useState<UmlComponent[]>([]);
-  const [arrows, setArrows] = useState<UmlArrow[]>([]);
+  // --- State Management via History ---
+  const { state, setState, takeSnapshot, undo, redo } = useHistory({
+    components: [],
+    arrows: []
+  });
+
+  const { components, arrows } = state;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftConnection, setDraftConnection] = useState<DraftConnection | null>(null);
   const hoveredPortRef = useRef<{ nodeId: string, port: PortPosition } | null>(null);
@@ -39,8 +77,26 @@ const BoardPage: React.FC = () => {
     [components, selectedId]
   );
 
-  // Add new UML components to the center of the current view
+  const selectedArrow = useMemo(() => 
+    arrows.find((a) => a.id === selectedId),
+    [arrows, selectedId]
+  );
+
+  // --- Handlers ---
+
+  const handleDeleteSelected = useCallback(() => {
+    if (!selectedId) return;
+    takeSnapshot(); // Record state before deletion
+
+    setState(prev => ({
+      components: prev.components.filter(c => c.id !== selectedId),
+      arrows: prev.arrows.filter(a => a.id !== selectedId && a.fromId !== selectedId && a.toId !== selectedId)
+    }));
+    setSelectedId(null);
+  }, [selectedId, takeSnapshot, setState]);
+
   const addComponent = useCallback((type: ComponentType) => {
+    takeSnapshot();
     const id = `comp-${Date.now()}`;
     const baseProps = {
       id,
@@ -51,23 +107,25 @@ const BoardPage: React.FC = () => {
     };
 
     let newComp: UmlComponent;
+    const data = { fontSize: 14 }; // Default font size from our previous update
+
     if (type === ComponentType.CLASS) {
-      newComp = { ...baseProps, type: ComponentType.CLASS, data: { header: "NewClass", attributes: ["- id: int"], methods: ["+ save()"] } };
+      newComp = { ...baseProps, type: ComponentType.CLASS, data: { ...data, header: "NewClass", attributes: ["- id: int"], methods: ["+ save()"] } };
     } else if (type === ComponentType.SERVER) {
-      newComp = { ...baseProps, type: ComponentType.SERVER, data: { header: "Server" } };
+      newComp = { ...baseProps, type: ComponentType.SERVER, data: { ...data, header: "Server" } };
     } else {
-      newComp = { ...baseProps, type: ComponentType.DATABASE, data: { header: "DB" } };
+      newComp = { ...baseProps, type: ComponentType.DATABASE, data: { ...data, header: "DB" } };
     }
 
-    setComponents((prev) => [...prev, newComp]);
-  }, [stagePos, stageScale, stageSize]);
+    setState(prev => ({ ...prev, components: [...prev.components, newComp] }));
+  }, [stagePos, stageScale, stageSize, takeSnapshot, setState]);
 
-  // Handle updates for both dragging and manual property changes
   const handleUpdateComponent = useCallback((id: string, updates: Partial<UmlComponent>) => {
-    setComponents((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, ...updates } as UmlComponent : c))
-    );
-  }, []);
+    setState(prev => ({
+      ...prev,
+      components: prev.components.map((c) => (c.id === id ? { ...c, ...updates } as UmlComponent : c))
+    }));
+  }, [setState]);
 
   const handleComponentDragMove = useCallback((e: KonvaEventObject<DragEvent>, id: string) => {
     handleUpdateComponent(id, { 
@@ -76,18 +134,28 @@ const BoardPage: React.FC = () => {
     });
   }, [handleUpdateComponent]);
 
-  const handlePortMouseDown = useCallback((nodeId: string, port: PortPosition, x: number, y: number) => {
-    setDraftConnection({ startNodeId: nodeId, startPort: port, currentX: x, currentY: y });
-  }, []);
+  const handleStageMouseUp = useCallback(() => {
+    if (!draftConnection) return;
 
-  const handlePortMouseEnter = useCallback((nodeId: string, port: PortPosition) => {
-    hoveredPortRef.current = { nodeId, port };
-  }, []);
+    const target = hoveredPortRef.current || findNearestPort(draftConnection.currentX, draftConnection.currentY, draftConnection.startNodeId);
+    
+    if (target) {
+      takeSnapshot();
+      const newArrow: UmlArrow = {
+        id: `arrow-${Date.now()}`,
+        fromId: draftConnection.startNodeId,
+        fromPort: draftConnection.startPort,
+        toId: target.nodeId,
+        toPort: target.port,
+        type: 'SOLID',
+        headType: 'ARROW'
+      };
+      setState(prev => ({ ...prev, arrows: [...prev.arrows, newArrow] }));
+    }
+    setDraftConnection(null);
+  }, [draftConnection, takeSnapshot, setState]);
 
-  const handlePortMouseLeave = useCallback(() => {
-    hoveredPortRef.current = null;
-  }, []);
-
+  // Helper for arrow snapping
   const findNearestPort = (x: number, y: number, excludeNodeId?: string) => {
     const SNAP_THRESHOLD = 40; 
     let closest: { nodeId: string, port: PortPosition } | null = null;
@@ -108,76 +176,7 @@ const BoardPage: React.FC = () => {
     return closest;
   };
 
-  const handleArrowHandleDragMove = useCallback((
-    arrowId: string, 
-    handleType: 'start' | 'end', 
-    newPos: { x: number, y: number }
-  ) => {
-    setArrows((prev) => prev.map((a) => {
-      if (a.id !== arrowId) return a;
-      return handleType === 'start' 
-        ? { ...a, fromId: null, fromPort: undefined, fromCoords: newPos }
-        : { ...a, toId: null, toPort: undefined, toCoords: newPos };
-    }));
-  }, []);
-
-  const handleArrowHandleDragEnd = useCallback((arrowId: string, handleType: 'start' | 'end') => {
-    setArrows((prev) => prev.map((a) => {
-      if (a.id !== arrowId) return a;
-      
-      const coords = handleType === 'start' ? a.fromCoords : a.toCoords;
-      const nearest = coords ? findNearestPort(coords.x, coords.y) : hoveredPortRef.current;
-
-      if (nearest) {
-        return handleType === 'start' 
-          ? { ...a, fromId: nearest.nodeId, fromPort: nearest.port, fromCoords: undefined }
-          : { ...a, toId: nearest.nodeId, toPort: nearest.port, toCoords: undefined };
-      }
-      return a;
-    }));
-  }, [components]);
-
-  const handleStageMouseUp = useCallback(() => {
-    if (!draftConnection) return;
-
-    const target = hoveredPortRef.current || findNearestPort(draftConnection.currentX, draftConnection.currentY, draftConnection.startNodeId);
-    
-    if (target) {
-      const newArrow: UmlArrow = {
-        id: `arrow-${Date.now()}`,
-        fromId: draftConnection.startNodeId,
-        fromPort: draftConnection.startPort,
-        toId: target.nodeId,
-        toPort: target.port,
-        type: 'SOLID',
-        headType: 'ARROW'
-      };
-      setArrows(prev => [...prev, newArrow]);
-    }
-
-    setDraftConnection(null);
-  }, [draftConnection, components]);
-
-  const handleStageMouseMove = useCallback((e: KonvaEventObject<MouseEvent>) => {
-    if (!draftConnection) return;
-    const stage = e.target.getStage();
-    if (!stage) return;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
-    
-    setDraftConnection(prev => prev ? { 
-      ...prev, 
-      currentX: (pointer.x - stage.x()) / stage.scaleX(), 
-      currentY: (pointer.y - stage.y()) / stage.scaleY() 
-    } : null);
-  }, [draftConnection]);
-
-  const handleStageDrag = (e: KonvaEventObject<DragEvent>) => {
-    if (e.target === e.target.getStage()) {
-        setStagePos({ x: e.target.x(), y: e.target.y() });
-    }
-  };
-
+  // Stage interactions
   const handleWheel = (e: KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
     const stage = e.target.getStage();
@@ -203,26 +202,59 @@ const BoardPage: React.FC = () => {
           stageSize={stageSize}
           stagePos={stagePos}
           stageScale={stageScale}
-          onStageDrag={handleStageDrag}
+          onStageDrag={(e) => e.target === e.target.getStage() && setStagePos({ x: e.target.x(), y: e.target.y() })}
           onWheel={handleWheel}
           onSelect={setSelectedId}
           onComponentDragMove={handleComponentDragMove}
-          onComponentDragEnd={handleComponentDragMove}
-          onStageMouseMove={handleStageMouseMove}
+          onComponentDragEnd={() => takeSnapshot()} // Snapshot on release
+          onStageMouseMove={(e) => {
+            if (!draftConnection) return;
+            const stage = e.target.getStage()!;
+            const pointer = stage.getPointerPosition()!;
+            setDraftConnection(prev => prev ? { 
+              ...prev, 
+              currentX: (pointer.x - stage.x()) / stage.scaleX(), 
+              currentY: (pointer.y - stage.y()) / stage.scaleY() 
+            } : null);
+          }}
           onStageMouseUp={handleStageMouseUp}
-          onPortMouseDown={handlePortMouseDown}
-          onPortMouseEnter={handlePortMouseEnter}
-          onPortMouseLeave={handlePortMouseLeave}
-          onArrowControlPointDragMove={(id, pos) => setArrows(prev => prev.map(a => a.id === id ? { ...a, controlPoint: pos } : a))}
-          onArrowHandleDragMove={handleArrowHandleDragMove}
-          onArrowHandleDragEnd={handleArrowHandleDragEnd} 
+          onPortMouseDown={(nodeId, port, x, y) => setDraftConnection({ startNodeId: nodeId, startPort: port, currentX: x, currentY: y })}
+          onPortMouseEnter={(nodeId, port) => { hoveredPortRef.current = { nodeId, port }; }}
+          onPortMouseLeave={() => { hoveredPortRef.current = null; }}
+          onArrowControlPointDragMove={(id, pos) => setState(prev => ({ ...prev, arrows: prev.arrows.map(a => a.id === id ? { ...a, controlPoint: pos } : a) }))}
+          onArrowHandleDragMove={(id, type, pos) => setState(prev => ({
+            ...prev,
+            arrows: prev.arrows.map(a => a.id === id ? (type === 'start' ? { ...a, fromId: null, fromCoords: pos } : { ...a, toId: null, toCoords: pos }) : a)
+          }))}
+          onArrowHandleDragEnd={() => takeSnapshot()}
           onUpdateComponent={handleUpdateComponent}
+          onUndo={undo}
+          onRedo={redo}
+          onTakeSnapshot={takeSnapshot}
         />
-        <PropertiesPanel 
-            selectedComponent={selectedComponent} 
-            onUpdate={(updates) => selectedId && handleUpdateComponent(selectedId, updates)} 
-            onClose={() => setSelectedId(null)} 
-        />
+
+        {selectedComponent && (
+            <PropertiesPanel 
+                selectedComponent={selectedComponent} 
+                onUpdate={(updates) => {
+                  takeSnapshot();
+                  handleUpdateComponent(selectedId!, updates);
+                }} 
+                onDelete={handleDeleteSelected}
+                onClose={() => setSelectedId(null)} 
+            />
+        )}
+        
+        {selectedArrow && (
+          <div className="absolute right-4 bottom-4 z-30">
+            <button 
+              onClick={handleDeleteSelected}
+              className="bg-red-600 text-white px-4 py-2 rounded shadow-lg hover:bg-red-700 font-bold transition-all"
+            >
+              Delete Selected Arrow
+            </button>
+          </div>
+        )}
       </main>
     </div>
   );

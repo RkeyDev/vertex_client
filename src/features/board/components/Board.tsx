@@ -5,7 +5,8 @@ import {
   type UmlComponent, 
   type UmlArrow, 
   type DraftConnection, 
-  type PortPosition 
+  type PortPosition,
+  ComponentType 
 } from '../types/board.types';
 import CanvasNode from './CanvasNode';
 import CanvasArrow, { getPortCoordinates } from './CanvasArrow';
@@ -18,6 +19,7 @@ interface BoardProps {
   stageSize: { width: number; height: number };
   stagePos: { x: number; y: number };
   stageScale: number;
+  // State Actions
   onStageDrag: (e: KonvaEventObject<DragEvent>) => void;
   onWheel: (e: KonvaEventObject<WheelEvent>) => void;
   onSelect: (id: string | null) => void;
@@ -32,6 +34,10 @@ interface BoardProps {
   onArrowControlPointDragMove: (arrowId: string, newPos: { x: number, y: number }) => void;
   onArrowHandleDragMove: (arrowId: string, handleType: 'start' | 'end', newPos: { x: number, y: number }, e: KonvaEventObject<DragEvent>) => void;
   onArrowHandleDragEnd: (arrowId: string, handleType: 'start' | 'end') => void;
+  // History Actions (Command Pattern)
+  onUndo: () => void;
+  onRedo: () => void;
+  onTakeSnapshot: () => void;
 }
 
 const Board: React.FC<BoardProps> = memo(({
@@ -39,11 +45,30 @@ const Board: React.FC<BoardProps> = memo(({
   onStageDrag, onWheel, onSelect, onComponentDragMove, onComponentDragEnd, onUpdateComponent,
   onStageMouseMove, onStageMouseUp, onPortMouseDown, onPortMouseEnter, onPortMouseLeave,
   onArrowControlPointDragMove, onArrowHandleDragMove, onArrowHandleDragEnd,
+  onUndo, onRedo, onTakeSnapshot
 }) => {
   const trRef = useRef<any>(null);
   const nodesRef = useRef<Map<string, any>>(new Map());
   const [isTransforming, setIsTransforming] = useState(false);
 
+  // --- Keyboard Shortcuts (Undo/Redo) ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isCtrl = e.ctrlKey || e.metaKey; // Support Windows & Mac
+      if (isCtrl && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        onUndo();
+      } else if (isCtrl && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        onRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onUndo, onRedo]);
+
+  // --- Selection Logic ---
   useEffect(() => {
     if (trRef.current) {
       const selectedNode = nodesRef.current.get(selectedId || '');
@@ -57,9 +82,9 @@ const Board: React.FC<BoardProps> = memo(({
   }, [selectedId]);
 
   /**
-   * Optimized real-time transformation handler.
-   * This forces the Konva node to remain at scale 1 while updating the state 
-   * with absolute dimensions.
+   * handleTransform
+   * Synchronizes scale values into absolute width/height to ensure 
+   * text and strokes don't look distorted.
    */
   const handleTransform = useCallback(() => {
     if (!selectedId || !trRef.current) return;
@@ -70,13 +95,10 @@ const Board: React.FC<BoardProps> = memo(({
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
 
-    // Calculate absolute dimensions
     const newWidth = Math.max(50, node.width() * scaleX);
     const newHeight = Math.max(50, node.height() * scaleY);
 
-    // RESET SCALE IMMEDIATELY
-    // This is the "magic" line that prevents the moving/jumping issue 
-    // and ensures the font size calculation uses the real width.
+    // Immediate visual reset to prevent "stretching"
     node.setAttrs({
       width: newWidth,
       height: newHeight,
@@ -84,9 +106,6 @@ const Board: React.FC<BoardProps> = memo(({
       scaleY: 1,
     });
 
-    // Update parent state. 
-    // IMPORTANT: Ensure your parent state updates are synchronous (not debounced) 
-    // for the font-size to look smooth.
     onUpdateComponent(selectedId, {
       width: Math.round(newWidth),
       height: Math.round(newHeight),
@@ -97,8 +116,15 @@ const Board: React.FC<BoardProps> = memo(({
 
   const handleTransformEnd = useCallback(() => {
     setIsTransforming(false);
-  }, []);
+    onTakeSnapshot(); // Finalize change in History Stack
+  }, [onTakeSnapshot]);
 
+  const handleDragEndInternal = useCallback((e: KonvaEventObject<DragEvent>, id: string) => {
+    onComponentDragEnd(e, id);
+    onTakeSnapshot(); // Finalize movement in History Stack
+  }, [onComponentDragEnd, onTakeSnapshot]);
+
+  // --- Grid Visuals ---
   const GRID_SIZE = 40;
   const scaledGridSize = GRID_SIZE * stageScale;
   const gridStyle: React.CSSProperties = {
@@ -108,8 +134,8 @@ const Board: React.FC<BoardProps> = memo(({
     overflow: 'hidden',
     backgroundColor: '#ffffff',
     backgroundImage: `
-      linear-gradient(to right, rgb(59, 131, 246, 0.2) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(59, 131, 246, 0.2) 1px, transparent 1px)
+      linear-gradient(to right, rgb(59, 131, 246, 0.1) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(59, 131, 246, 0.1) 1px, transparent 1px)
     `,
     backgroundSize: `${scaledGridSize}px ${scaledGridSize}px`,
     backgroundPosition: `${stagePos.x}px ${stagePos.y}px`,
@@ -140,6 +166,7 @@ const Board: React.FC<BoardProps> = memo(({
         }}
       >
         <Layer>
+          {/* Connections/Arrows */}
           {arrows.map((arrow) => (
             <CanvasArrow
               key={arrow.id}
@@ -154,6 +181,7 @@ const Board: React.FC<BoardProps> = memo(({
             />
           ))}
 
+          {/* Nodes/Components */}
           {components.map((comp) => (
             <CanvasNode 
               key={comp.id}
@@ -166,8 +194,7 @@ const Board: React.FC<BoardProps> = memo(({
               isTransforming={isTransforming}
               onClick={() => onSelect(comp.id)}
               onDragMove={(e: any) => onComponentDragMove(e, comp.id)}
-              onDragEnd={(e: any) => onComponentDragEnd(e, comp.id)}
-              // We keep these here for safety, but the Transformer handles the bulk
+              onDragEnd={(e: any) => handleDragEndInternal(e, comp.id)}
               onTransform={handleTransform} 
               onTransformEnd={handleTransformEnd}
               onPortMouseDown={onPortMouseDown}
@@ -176,6 +203,7 @@ const Board: React.FC<BoardProps> = memo(({
             />
           ))}
 
+          {/* Transformer (Overlay) */}
           {selectedId && components.find(c => c.id === selectedId) && (
             <Transformer
               ref={trRef}
@@ -183,12 +211,13 @@ const Board: React.FC<BoardProps> = memo(({
               keepRatio={false}
               anchorFill="#ffffff"
               anchorStroke="#3b82f6"
-              anchorCornerRadius={3}
+              anchorCornerRadius={2}
               anchorSize={8}
               borderStroke="#3b82f6"
               borderDash={[3, 3]}
               boundBoxFunc={(oldBox, newBox) => {
-                if (Math.abs(newBox.width) < 50 || Math.abs(newBox.height) < 50) {
+                // Minimum size constraint
+                if (Math.abs(newBox.width) < 60 || Math.abs(newBox.height) < 60) {
                   return oldBox;
                 }
                 return newBox;
@@ -199,6 +228,7 @@ const Board: React.FC<BoardProps> = memo(({
             />
           )}
 
+          {/* Active Connection Line (Drafting) */}
           {draftConnection && (
             <Arrow
               points={[draftStart.x, draftStart.y, draftConnection.currentX, draftConnection.currentY]}
