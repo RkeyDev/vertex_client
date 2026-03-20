@@ -19,13 +19,13 @@ interface CanvasArrowProps {
 }
 
 export const getPortCoordinates = (node: UmlComponent, port: PortPosition) => {
-  const { xPox, yPos, width, height } = node;
+  const { xPos, yPos, width, height } = node;
   switch (port) {
-    case 'top':    return { x: xPox + width / 2, y: yPos };
-    case 'right':  return { x: xPox + width,     y: yPos + height / 2 };
-    case 'bottom': return { x: xPox + width / 2, y: yPos + height };
-    case 'left':   return { x: xPox,             y: yPos + height / 2 };
-    default:       return { x: xPox,             y: yPos };
+    case 'top':    return { x: xPos + width / 2, y: yPos };
+    case 'right':  return { x: xPos + width,     y: yPos + height / 2 };
+    case 'bottom': return { x: xPos + width / 2, y: yPos + height };
+    case 'left':   return { x: xPos,             y: yPos + height / 2 };
+    default:       return { x: xPos,             y: yPos };
   }
 };
 

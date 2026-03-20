@@ -10,7 +10,7 @@ export type PortPosition = 'top' | 'right' | 'bottom' | 'left';
 
 interface BaseComponent {
   id: string;
-  xPox: number; 
+  xPos: number; 
   yPos: number;
   width: number;
   height: number;

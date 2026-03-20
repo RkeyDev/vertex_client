@@ -1,7 +1,6 @@
 import React from 'react';
 import { 
   type UmlComponent, 
-  type UmlClassComponent, 
   ComponentType 
 } from '../types/board.types';
 
@@ -11,10 +10,6 @@ interface PropertiesPanelProps {
   onClose: () => void;
 }
 
-/**
- * PropertiesPanel - Generic side panel for editing UML component properties.
- * Handles dynamic data fields (arrays, strings) and base layout properties.
- */
 const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, onUpdate, onClose }) => {
   if (!selectedComponent) return null;
 
@@ -56,7 +51,9 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
     const data = selectedComponent.data || {};
     
     return Object.entries(data).map(([key, value]) => {
-      // Handle Arrays (e.g., attributes, methods)
+      // Skip fontSize in the dynamic loop as we'll give it a dedicated UI section below
+      if (key === 'fontSize') return null;
+
       if (Array.isArray(value)) {
         return (
           <section key={key} className="space-y-2">
@@ -90,7 +87,6 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
         );
       }
 
-      // Handle Strings (e.g., header/title)
       if (typeof value === 'string') {
         return (
           <div key={key}>
@@ -107,7 +103,6 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
         );
       }
 
-      //TODO Handle Booleans or simple Numbers inside 'data' if they exist later
       return null;
     });
   };
@@ -117,7 +112,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
       <div className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Properties</h2>
-          <span className="text-[10px] px-2 py-0.5 bg-gray-200 rounded-full text-gray-600 font-mono">
+          <span className="text-[10px] px-2 py-0.5 bg-gray-200 rounded-full text-gray-600 font-mono uppercase">
             {selectedComponent.type}
           </span>
         </div>
@@ -129,14 +124,51 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
       </div>
 
       <div className="flex-1 overflow-y-auto pr-2 space-y-8">
-        {/* Dynamic Component Data */}
+        {/* Component Content (Title, Methods, etc.) */}
         <div className="space-y-6">
           {renderDataEditors()}
         </div>
 
         <hr className="border-gray-300" />
 
-        {/* Static Layout Properties */}
+        {/* Typography Section */}
+        <section className="space-y-4">
+          <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">Typography</h3>
+          <div className="space-y-2">
+             <div className="flex justify-between items-center">
+                <label className="text-[10px] font-bold text-gray-500 uppercase">Font Size</label>
+                <span className="text-xs font-mono text-blue-600 font-bold">
+                    {(selectedComponent.data as any)?.fontSize || 14}px
+                </span>
+             </div>
+             <input 
+                type="range"
+                min="8"
+                max="72"
+                className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                value={(selectedComponent.data as any)?.fontSize || 14}
+                onChange={(e) => updateDataField('fontSize', parseInt(e.target.value))}
+             />
+             <div className="flex gap-2">
+                <button 
+                    onClick={() => updateDataField('fontSize', Math.max(8, ((selectedComponent.data as any)?.fontSize || 14) - 1))}
+                    className="flex-1 bg-white border border-gray-300 text-gray-600 text-xs py-1 rounded hover:bg-gray-50"
+                >
+                    smaller
+                </button>
+                <button 
+                    onClick={() => updateDataField('fontSize', Math.min(72, ((selectedComponent.data as any)?.fontSize || 14) + 1))}
+                    className="flex-1 bg-white border border-gray-300 text-gray-600 text-xs py-1 rounded hover:bg-gray-50"
+                >
+                    larger
+                </button>
+             </div>
+          </div>
+        </section>
+
+        <hr className="border-gray-300" />
+
+        {/* Transform Properties */}
         <section className="space-y-4">
           <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">Transform</h3>
           
@@ -156,8 +188,8 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
           <div className="grid grid-cols-2 gap-4">
             <LayoutInput 
               label="X Pos" 
-              value={selectedComponent.xPox} 
-              onChange={(val) => updateBaseField('xPox', val)} 
+              value={selectedComponent.xPos} 
+              onChange={(val) => updateBaseField('xPos', val)} 
             />
             <LayoutInput 
               label="Y Pos" 
@@ -171,9 +203,6 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedComponent, on
   );
 };
 
-/**
- * Reusable layout input sub-component
- */
 const LayoutInput: React.FC<{ label: string; value: number; onChange: (val: number) => void }> = ({ label, value, onChange }) => (
   <div>
     <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-tighter">{label}</label>

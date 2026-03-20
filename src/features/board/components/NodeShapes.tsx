@@ -1,18 +1,34 @@
 import React from 'react';
+import { 
+  type UmlComponent, 
+  ComponentType 
+} from '../types/board.types';
 import { Rect, Group, Text, Line, Path } from 'react-konva';
-import { type UmlComponent, ComponentType } from '../types/board.types';
 
 interface ShapeProps {
   component: UmlComponent;
   isSelected: boolean;
 }
 
+/**
+ * Helper to calculate the scaled font size based on the component's 
+ * current width vs a reference width, plus any manual overrides.
+ */
+const getScaledFontSize = (component: UmlComponent, baseSize: number) => {
+  const manualFontSize = (component.data as any)?.fontSize || baseSize;
+  const REFERENCE_WIDTH = 150;
+  const ratio = component.width / REFERENCE_WIDTH;
+  return Math.max(8, Math.round(manualFontSize * ratio));
+};
+
 export const ClassShape: React.FC<ShapeProps> = ({ component, isSelected }) => {
   const { width, height, data } = component;
   
-  // Professional UML proportions
-  const headerHeight = 35;
-  // We'll split the remaining height into two equal sections for attributes and methods
+  // Dynamic font sizes based on the scaling logic
+  const headerFontSize = getScaledFontSize(component, 14);
+  const bodyFontSize = getScaledFontSize(component, 12);
+
+  const headerHeight = 35 * (width / 150); // Scale header height too so it looks proportional
   const bodyHeight = height - headerHeight;
   const attributeSectionHeight = bodyHeight / 2;
   const secondLineY = headerHeight + attributeSectionHeight;
@@ -21,7 +37,6 @@ export const ClassShape: React.FC<ShapeProps> = ({ component, isSelected }) => {
 
   return (
     <Group>
-      {/* Main Container */}
       <Rect
         width={width}
         height={height}
@@ -31,48 +46,43 @@ export const ClassShape: React.FC<ShapeProps> = ({ component, isSelected }) => {
         cornerRadius={2}
       />
 
-      {/* Header Separator */}
       <Line 
         points={[0, headerHeight, width, headerHeight]} 
         stroke={strokeColor} 
         strokeWidth={1} 
       />
 
-      {/* Attributes/Methods Separator */}
       <Line 
         points={[0, secondLineY, width, secondLineY]} 
         stroke={strokeColor} 
         strokeWidth={1} 
       />
 
-      {/* Header Text */}
       <Text
-        text={data && 'header' in data ? data.header : 'Class'}
+        text={(data as any)?.header || 'Class'}
         width={width}
         height={headerHeight}
         align="center"
         verticalAlign="middle"
         fontStyle="bold"
-        fontSize={14}
+        fontSize={headerFontSize} // UPDATED
       />
 
-      {/* Attributes Placeholder (Top half of body) */}
       <Text
-        text={data && 'attributes' in data ? data.attributes?.join('\n') : ''}
+        text={Array.isArray((data as any)?.attributes) ? (data as any).attributes.join('\n') : ''}
         x={5}
         y={headerHeight + 5}
         width={width - 10}
-        fontSize={12}
+        fontSize={bodyFontSize} // UPDATED
         fontFamily="monospace"
       />
 
-      {/* Methods Placeholder (Bottom half of body) */}
       <Text
-        text={data && 'methods' in data ? data.methods?.join('\n') : ''}
+        text={Array.isArray((data as any)?.methods) ? (data as any).methods.join('\n') : ''}
         x={5}
         y={secondLineY + 5}
         width={width - 10}
-        fontSize={12}
+        fontSize={bodyFontSize} // UPDATED
         fontFamily="monospace"
       />
     </Group>
@@ -94,6 +104,7 @@ export const DatabaseShape: React.FC<ShapeProps> = ({ component, isSelected }) =
   const { width, height } = component;
   const rx = width / 2;
   const ry = 10;
+  // Note: For a database shape, you might want to scale 'ry' as well if the width gets huge
   const pathData = `M 0,${ry} a ${rx},${ry} 0 1,1 ${width},0 a ${rx},${ry} 0 1,1 -${width},0 l 0,${height - ry * 2} a ${rx},${ry} 0 0,0 ${width},0 l 0,-${height - ry * 2}`;
 
   return (

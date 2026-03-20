@@ -16,7 +16,6 @@ import {
 
 import { getPortCoordinates } from '../features/board/components/CanvasArrow';
 
-// Utility for proximity calculation
 const getDistance = (x1: number, y1: number, x2: number, y2: number) => {
   return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
 };
@@ -40,14 +39,15 @@ const BoardPage: React.FC = () => {
     [components, selectedId]
   );
 
+  // Add new UML components to the center of the current view
   const addComponent = useCallback((type: ComponentType) => {
     const id = `comp-${Date.now()}`;
     const baseProps = {
       id,
-      xPox: Math.round((-stagePos.x + stageSize.width / 2) / stageScale - 75),
+      xPos: Math.round((-stagePos.x + stageSize.width / 2) / stageScale - 75),
       yPos: Math.round((-stagePos.y + stageSize.height / 2) / stageScale - 50),
       width: 150,
-      height: 120, // Increased default height for 3-section class
+      height: 120,
     };
 
     let newComp: UmlComponent;
@@ -62,22 +62,19 @@ const BoardPage: React.FC = () => {
     setComponents((prev) => [...prev, newComp]);
   }, [stagePos, stageScale, stageSize]);
 
-  const handleComponentDragMove = useCallback((e: KonvaEventObject<DragEvent>, id: string) => {
+  // Handle updates for both dragging and manual property changes
+  const handleUpdateComponent = useCallback((id: string, updates: Partial<UmlComponent>) => {
     setComponents((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? { ...c, xPox: Math.round(e.target.x()), yPos: Math.round(e.target.y()) }
-          : c
-      )
+      prev.map((c) => (c.id === id ? { ...c, ...updates } as UmlComponent : c))
     );
   }, []);
 
-  const handleUpdateComponent = useCallback((updates: Partial<UmlComponent>) => {
-    if (!selectedId) return;
-    setComponents((prev) =>
-      prev.map((c) => (c.id === selectedId ? { ...c, ...updates } as UmlComponent : c))
-    );
-  }, [selectedId]);
+  const handleComponentDragMove = useCallback((e: KonvaEventObject<DragEvent>, id: string) => {
+    handleUpdateComponent(id, { 
+        xPos: Math.round(e.target.x()), 
+        yPos: Math.round(e.target.y()) 
+    });
+  }, [handleUpdateComponent]);
 
   const handlePortMouseDown = useCallback((nodeId: string, port: PortPosition, x: number, y: number) => {
     setDraftConnection({ startNodeId: nodeId, startPort: port, currentX: x, currentY: y });
@@ -92,7 +89,7 @@ const BoardPage: React.FC = () => {
   }, []);
 
   const findNearestPort = (x: number, y: number, excludeNodeId?: string) => {
-    const SNAP_THRESHOLD = 40; // Pixels
+    const SNAP_THRESHOLD = 40; 
     let closest: { nodeId: string, port: PortPosition } | null = null;
     let minDistance = SNAP_THRESHOLD;
 
@@ -143,7 +140,6 @@ const BoardPage: React.FC = () => {
   const handleStageMouseUp = useCallback(() => {
     if (!draftConnection) return;
 
-    // Use hoveredPortRef if precise, otherwise search for nearest
     const target = hoveredPortRef.current || findNearestPort(draftConnection.currentX, draftConnection.currentY, draftConnection.startNodeId);
     
     if (target) {
@@ -176,8 +172,12 @@ const BoardPage: React.FC = () => {
     } : null);
   }, [draftConnection]);
 
-  // Boilerplate stage handlers
-  const handleStageDrag = (e: KonvaEventObject<DragEvent>) => e.target === e.target.getStage() && setStagePos({ x: e.target.x(), y: e.target.y() });
+  const handleStageDrag = (e: KonvaEventObject<DragEvent>) => {
+    if (e.target === e.target.getStage()) {
+        setStagePos({ x: e.target.x(), y: e.target.y() });
+    }
+  };
+
   const handleWheel = (e: KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
     const stage = e.target.getStage();
@@ -215,9 +215,14 @@ const BoardPage: React.FC = () => {
           onPortMouseLeave={handlePortMouseLeave}
           onArrowControlPointDragMove={(id, pos) => setArrows(prev => prev.map(a => a.id === id ? { ...a, controlPoint: pos } : a))}
           onArrowHandleDragMove={handleArrowHandleDragMove}
-          onArrowHandleDragEnd={handleArrowHandleDragEnd}
+          onArrowHandleDragEnd={handleArrowHandleDragEnd} 
+          onUpdateComponent={handleUpdateComponent}
         />
-        <PropertiesPanel selectedComponent={selectedComponent} onUpdate={handleUpdateComponent} onClose={() => setSelectedId(null)} />
+        <PropertiesPanel 
+            selectedComponent={selectedComponent} 
+            onUpdate={(updates) => selectedId && handleUpdateComponent(selectedId, updates)} 
+            onClose={() => setSelectedId(null)} 
+        />
       </main>
     </div>
   );
