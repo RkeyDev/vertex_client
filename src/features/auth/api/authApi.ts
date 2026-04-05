@@ -1,11 +1,13 @@
-import axios from 'axios';
+import api from '../../../api/axiosInstance';
 import {type RegisterFormData } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+/**
+ * Sends registration data to the Spring Boot backend.
+ * @param data - Validated form data from React Hook Form
+ */
+export const registerUser = async (data: RegisterFormData) => {
+  const { confirmPassword, terms, ...backendData } = data;
 
-export const registerUser = async (data: RegisterFormData): Promise<void> => {
-  // Remove confirmPassword before sending to Java backend
-  const { confirmPassword, ...payload } = data;
-  
-  await axios.post(`${API_URL}/auth/register`, payload);
+  const response = await api.post('/auth/register', backendData);
+  return response.data;
 };

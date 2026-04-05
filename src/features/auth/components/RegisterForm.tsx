@@ -12,10 +12,14 @@ const RegisterForm: React.FC = () => {
 
   const onSubmit = async (data: RegisterFormData) => {
     try {
-      await registerUser(data);
-      alert('Account created successfully!');
-    } catch (err) {
-      console.error('Registration failed:', err);
+      const response = await registerUser(data);
+      
+      if (response.responseCode === "201") {
+        alert('Registration successful!');
+      }
+    } catch (err: any) {
+      alert(err.message); 
+      console.error('Registration failed:', err.message);
     }
   };
 
