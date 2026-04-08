@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ProjectCard from '../features/projects/components/ProjectCard.tsx';
+import UserAvatar from '../components/UserAvatar.tsx';
 
 // Mock data structure - set to [] to test the empty state
 const MOCK_PROJECTS = [
@@ -30,9 +31,7 @@ const DashboardPage: React.FC = () => {
 
         {/* User Profile Circle at Bottom */}
         <div className="p-8">
-          <div className="w-16 h-16 bg-[#2C3E50] rounded-full flex items-center justify-center text-white font-bold text-2xl shadow-lg">
-            RK
-          </div>
+          <UserAvatar></UserAvatar>
         </div>
       </aside>
 

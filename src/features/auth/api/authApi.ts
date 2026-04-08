@@ -1,13 +1,15 @@
 import api from '../../../api/axiosInstance';
-import {type RegisterFormData } from '../types';
+import { type LoginFormData, type RegisterFormData } from '../types';
 
-/**
- * Sends registration data to the Spring Boot backend.
- * @param data - Validated form data from React Hook Form
- */
+// The backend returns ApiResponse<LoginResponseDTO>
+export const loginUser = async (data: LoginFormData) => {
+  // We send the whole data object including 'rememberMe' to the backend
+  const response = await api.post('/auth/login', data);
+  return response.data; // This is the ApiResponse object
+};
+
 export const registerUser = async (data: RegisterFormData) => {
   const { confirmPassword, terms, ...backendData } = data;
-
   const response = await api.post('/auth/register', backendData);
   return response.data;
 };
