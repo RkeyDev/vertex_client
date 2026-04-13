@@ -19,35 +19,36 @@ const LoginForm: React.FC = () => {
     defaultValues: { rememberMe: false }
   });
 
-const onSubmit = async (data: LoginFormData) => {
+  const onSubmit = async (data: LoginFormData) => {
     setServerError(null);
     try {
-      // loginUser already returns response.data from your axios call
+      // loginUser returns the response.data from the axios call
       const apiResponse = await loginUser(data); 
 
       console.log("Processing API Response:", apiResponse);
 
-      // Check the code on the top level of the returned object
+      // Validate success based on the backend ApiResponse structure
       if (apiResponse && apiResponse.responseCode === "200") {
         
-        // The tokens are inside the 'data' field of your ApiResponse
+        // Tokens and user info are nested in the 'data' field
         const { accessToken, refreshToken, userSummary } = apiResponse.data;
 
-        // Persistence
-        sessionStorage.setItem('vertex_access_token', accessToken);
-        
-        if (data.rememberMe) {
-          localStorage.setItem('vertex_refresh_token', refreshToken);
-        } else {
-          sessionStorage.setItem('vertex_refresh_token', refreshToken);
-        }
-
+        /**
+         * PERSISTENCE LAYER
+         * Transitioned from sessionStorage to localStorage for all auth artifacts.
+         * This allows the Axios interceptor to consistently find tokens.
+         */
+        localStorage.setItem('vertex_access_token', accessToken);
+        localStorage.setItem('vertex_refresh_token', refreshToken);
         localStorage.setItem('vertex_user', JSON.stringify(userSummary));
+
+        // Note: 'rememberMe' could still be used to set a cookie or 
+        // determine session length if the backend supports it, 
+        // but for now, we persist globally for simplicity.
 
         console.log("Success! Redirecting to dashboard...");
         navigate('/dashboard', { replace: true });
       } else {
-        // This is where "Login failed" was coming from
         setServerError(apiResponse.message || "Login failed.");
       }
     } catch (error: any) {

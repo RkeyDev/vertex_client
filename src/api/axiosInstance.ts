@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+/**
+ * Professional Axios Instance for Vertex
+ * Handles JWT injection and silent refresh logic using localStorage for persistence.
+ */
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -9,12 +13,12 @@ const api = axios.create({
 
 /**
  * Request Interceptor
- * Automatically injects the Access Token into the Authorization header.
+ * Injects the Access Token into the Authorization header for every outgoing request.
  */
 api.interceptors.request.use(
   (config) => {
-    // We pull from sessionStorage as it's more secure for the short-lived access token
-    const token = sessionStorage.getItem('vertex_access_token');
+    // Moved from sessionStorage to localStorage for cross-tab persistence
+    const token = localStorage.getItem('vertex_access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -25,50 +29,55 @@ api.interceptors.request.use(
 
 /**
  * Response Interceptor
- * Handles global error messaging and the "Silent Refresh" logic for 401 errors.
+ * Intercepts 401 Unauthorized responses to attempt a silent token refresh.
  */
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
-    // Handle Token Expiration (401 Unauthorized)
+    // 401 Unauthorized: Trigger Silent Refresh if not already retried
     if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true; // Mark request to avoid infinite loops
+      originalRequest._retry = true;
 
-      const refreshToken = localStorage.getItem('vertex_refresh_token') || 
-                           sessionStorage.getItem('vertex_refresh_token');
+      const refreshToken = localStorage.getItem('vertex_refresh_token');
 
       if (refreshToken) {
         try {
-          // Note: We use a clean axios instance here to avoid interceptor loops
-          const response = await axios.post(`${import.meta.env.VITE_API_BASE_URL}/auth/refresh`, {
+          // Use a clean axios instance to avoid infinite interceptor loops
+          const refreshResponse = await axios.post(`${import.meta.env.VITE_API_BASE_URL}/auth/refresh`, {
             refreshToken: refreshToken
           });
 
-          // The backend returns ApiResponse<LoginResponseDTO>
-          const { accessToken } = response.data.payload;
+          // Extracts accessToken from the Java ApiResponse<T> DTO structure
+          const { accessToken, newRefreshToken } = refreshResponse.data.data;
 
-          // Update storage with the fresh access token
-          sessionStorage.setItem('vertex_access_token', accessToken);
+          // Update localStorage with the fresh credentials
+          localStorage.setItem('vertex_access_token', accessToken);
+          
+          // Optional: Update refresh token if the backend rotates it (Best Practice)
+          if (newRefreshToken) {
+            localStorage.setItem('vertex_refresh_token', newRefreshToken);
+          }
 
-          // Update the original request header and retry it
+          // Update the original request header and retry
           originalRequest.headers.Authorization = `Bearer ${accessToken}`;
           return api(originalRequest);
+          
         } catch (refreshError) {
-          // If refresh fails (e.g., refresh token expired), clean up and redirect
-          sessionStorage.clear();
+          // Refresh failed (e.g., Refresh Token expired/revoked) -> Full Logout
+          localStorage.removeItem('vertex_access_token');
           localStorage.removeItem('vertex_refresh_token');
+          
+          // Redirect to login with state for UI feedback
           window.location.href = '/login?expired=true';
           return Promise.reject(refreshError);
         }
       }
     }
 
-    // Extract professional error message from backend ApiResponse
+    // Standardized error extraction from backend ApiResponse structure
     const message = error.response?.data?.message || 'An unexpected error occurred';
-    
-    // We wrap the message in an Error object so catch blocks can access .message
     return Promise.reject(new Error(message));
   }
 );
