@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../api/axiosInstance';
 import ProjectCard from '../../src/features/projects/components/ProjectCard.tsx';
 import UserAvatar from '../components/UserAvatar.tsx';
 
+// --- Interfaces ---
 
 interface ApiResponse<T> {
   message: string;
@@ -10,6 +12,11 @@ interface ApiResponse<T> {
   errors: any;
   responseCode: string;
   timestamp: string;
+}
+
+interface NewBoardRoomResponseDTO {
+  boardToken: string;
+  boardData: string;
 }
 
 interface OwnedBoardsResponse {
@@ -22,6 +29,10 @@ interface Board {
 }
 
 interface NewBoardDTO {
+  boardName: string;
+}
+
+interface NewBoardRoomDTO {
   boardName: string;
 }
 
@@ -44,7 +55,6 @@ interface ModalProps {
 const CreateBoardModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, isSubmitting }) => {
   const [boardName, setBoardName] = useState('');
 
-  // Reset local state when modal closes/opens
   useEffect(() => {
     if (!isOpen) setBoardName('');
   }, [isOpen]);
@@ -101,8 +111,10 @@ const CreateBoardModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, isS
   );
 };
 
+// --- DashboardPage Component ---
 
 const DashboardPage: React.FC = () => {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<Board[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -116,7 +128,7 @@ const DashboardPage: React.FC = () => {
       try {
         setUser(JSON.parse(rawData));
       } catch (err) {
-        console.error("Failed to parse user data in Dashboard", err);
+        console.error("Failed to parse user data", err);
       }
     }
   }, []);
@@ -133,17 +145,14 @@ const DashboardPage: React.FC = () => {
     try {
       setIsLoading(true);
       const response = await api.get<ApiResponse<OwnedBoardsResponse>>('/board/boards');
-      const apiResponse = response.data;
-
-      if (apiResponse.responseCode === "200" && apiResponse.data?.boards) {
-        setProjects(apiResponse.data.boards);
+      if (response.data.responseCode === "200" && response.data.data?.boards) {
+        setProjects(response.data.data.boards);
         setError(null);
       } else {
         setProjects([]);
-        setError(apiResponse.message || 'No access to boards.');
+        setError(response.data.message || 'No access to boards.');
       }
     } catch (err: any) {
-      console.error('Dashboard Data Fetch Error:', err);
       setError(err.message || 'Connection to Vertex backend failed.');
     } finally {
       setIsLoading(false);
@@ -162,7 +171,7 @@ const DashboardPage: React.FC = () => {
       
       if (response.data.responseCode === "200") {
         await fetchBoards();
-        setIsModalOpen(false); // Close modal on success
+        setIsModalOpen(false);
       } else {
         alert(`Error: ${response.data.message}`);
       }
@@ -173,9 +182,35 @@ const DashboardPage: React.FC = () => {
     }
   };
 
+  /**
+   * Initializes a room session using the board name and navigates.
+   */
+  const handleProjectClick = async (name: string) => {
+    try {
+      const payload: NewBoardRoomDTO = { boardName: name };
+      
+      // Use the specific ResponseDTO here
+      const response = await api.post<ApiResponse<NewBoardRoomResponseDTO>>(`/board/new-room`, payload);
+      
+      const { responseCode, data } = response.data;
+
+      // Debug log to check the incoming data in the browser console
+      console.log("Room Response Data:", data);
+
+      if (responseCode === "200" && data?.boardToken) {
+        // Correctly using ?id= for standard query params
+        navigate(`/board?id=${data.boardToken}`);
+      } else {
+        alert(response.data.message || 'Failed to initialize session.');
+      }
+    } catch (err: any) {
+      console.error('Room Creation Error:', err);
+      alert(err.response?.data?.message || 'Failed to enter the project board.');
+    }
+  };
+
   return (
     <div className="flex h-screen bg-[#A5C7E9]/30">
-      {/* New Project Modal */}
       <CreateBoardModal 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
@@ -228,6 +263,7 @@ const DashboardPage: React.FC = () => {
                   title={project.boardName}
                   avatarUrl={user?.avatarUrl}
                   initials={getInitials()}
+                  onClick={() => handleProjectClick(project.boardName)}
                 />
               ))}
             </div>
