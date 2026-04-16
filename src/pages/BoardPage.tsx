@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { type KonvaEventObject } from 'konva/lib/Node';
+import { useSearchParams } from 'react-router-dom';
 
 // Features & Components
 import Sidebar from '../features/board/components/SideBar';
@@ -11,12 +12,12 @@ import Board from '../features/board/components/Board';
 import { boardApi } from '../features/board/api/BoardApi';
 
 // Types
-import { 
-  ComponentType, 
-  type UmlComponent, 
-  type UmlArrow, 
-  type DraftConnection, 
-  type PortPosition 
+import {
+  ComponentType,
+  type UmlComponent,
+  type UmlArrow,
+  type DraftConnection,
+  type PortPosition
 } from '../features/board/types/board.types';
 
 // --- Internal History Logic ---
@@ -50,6 +51,9 @@ const useHistory = (initialState: { components: UmlComponent[], arrows: UmlArrow
 };
 
 const BoardPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const boardToken = searchParams.get('id');
+
   const { state, setState, takeSnapshot, undo, redo } = useHistory({
     components: [],
     arrows: []
@@ -60,6 +64,9 @@ const BoardPage: React.FC = () => {
   const [draftConnection, setDraftConnection] = useState<DraftConnection | null>(null);
   const hoveredPortRef = useRef<{ nodeId: string, port: PortPosition } | null>(null);
 
+  // Prevent remote updates from re-triggering the send effect
+  const isRemoteUpdate = useRef(false);
+
   // Stage Viewport State
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [stageScale, setStageScale] = useState(1);
@@ -68,38 +75,63 @@ const BoardPage: React.FC = () => {
     height: window.innerHeight - 80,
   });
 
-  const selectedComponent = useMemo(() => 
-    components.find((c) => c.id === selectedId), 
+  const selectedComponent = useMemo(() =>
+    components.find((c) => c.id === selectedId),
     [components, selectedId]
   );
 
-  const selectedArrow = useMemo(() => 
+  const selectedArrow = useMemo(() =>
     arrows.find((a) => a.id === selectedId),
     [arrows, selectedId]
   );
 
-  /**
-   * Auto-Save Effect
-   * Debounces the call to boardApi to prevent excessive processing.
-   * The actual JSON printing happens inside boardApi.saveBoard().
-   */
+  // --- WebSocket Connection ---
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (components.length > 0 || arrows.length > 0) {
+    if (!boardToken) {
+      console.warn('BoardPage: no board token found in URL (?id=...)');
+      return;
+    }
+
+    boardApi.connect(boardToken, (remoteState) => {
+      // Mark as remote so the send effect doesn't echo it back
+      isRemoteUpdate.current = true;
+      takeSnapshot();
+      setState({
+        components: remoteState.shapes ?? [],
+        arrows: remoteState.arrows ?? []
+      });
+    });
+
+    return () => {
+      boardApi.disconnect();
+    };
+  }, [boardToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Debounced Send Effect ---
+  useEffect(() => {
+    // Skip sending if this state change came from a remote update
+    if (isRemoteUpdate.current) {
+      isRemoteUpdate.current = false;
+      return;
+    }
+
+    // Dropped delay to 50ms for immediate real-time sync feeling.
+    // Also removed the `length > 0` check so deleting all components correctly syncs an empty board to Redis.
+    const id = setTimeout(() => {
+      if (boardToken) {
         boardApi.saveBoard(components, arrows);
       }
-    }, 1000); 
+    }, 50);
 
-    return () => clearTimeout(timeoutId);
-  }, [components, arrows]);
+    return () => clearTimeout(id);
+  }, [components, arrows, boardToken]);
 
   // --- Core Handlers ---
 
   const addComponent = useCallback((type: ComponentType) => {
     takeSnapshot();
     const id = `comp-${Date.now()}`;
-    
-    // Calculate center of the current view
+
     const baseProps = {
       id,
       xPos: Math.round((-stagePos.x + stageSize.width / 2) / stageScale - 75),
@@ -110,16 +142,15 @@ const BoardPage: React.FC = () => {
 
     let newComp: UmlComponent;
 
-    // Professional Default State for UML Class Nodes
     if (type === ComponentType.CLASS) {
-      newComp = { 
-        ...baseProps, 
-        type: ComponentType.CLASS, 
-        data: { 
-          header: "NewClass", 
-          attributes: ["- id: int"], // Default attribute restored
-          methods: ["+ save()"]       // Default method restored
-        } 
+      newComp = {
+        ...baseProps,
+        type: ComponentType.CLASS,
+        data: {
+          header: "NewClass",
+          attributes: ["- id: int"],
+          methods: ["+ save()"]
+        }
       };
     } else if (type === ComponentType.SERVER) {
       newComp = { ...baseProps, type: ComponentType.SERVER, data: { header: "Server" } };
@@ -135,7 +166,11 @@ const BoardPage: React.FC = () => {
     takeSnapshot();
     setState(prev => ({
       components: prev.components.filter(c => c.id !== selectedId),
-      arrows: prev.arrows.filter(a => a.id !== selectedId && a.fromId !== selectedId && a.toId !== selectedId)
+      arrows: prev.arrows.filter(a =>
+        a.id !== selectedId &&
+        a.fromId !== selectedId &&
+        a.toId !== selectedId
+      )
     }));
     setSelectedId(null);
   }, [selectedId, takeSnapshot, setState]);
@@ -143,30 +178,49 @@ const BoardPage: React.FC = () => {
   const handleUpdateComponent = useCallback((id: string, updates: Partial<UmlComponent>) => {
     setState(prev => ({
       ...prev,
-      components: prev.components.map((c) => (c.id === id ? { ...c, ...updates } as UmlComponent : c))
+      components: prev.components.map((c) =>
+        c.id === id ? { ...c, ...updates } as UmlComponent : c
+      )
     }));
   }, [setState]);
 
-  // Viewport Zoom Logic
+  // --- Viewport Zoom ---
   const handleWheel = (e: KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
     const stage = e.target.getStage();
     if (!stage) return;
     const oldScale = stage.scaleX();
     const pointer = stage.getPointerPosition()!;
-    const mousePointTo = { x: (pointer.x - stage.x()) / oldScale, y: (pointer.y - stage.y()) / oldScale };
+    const mousePointTo = {
+      x: (pointer.x - stage.x()) / oldScale,
+      y: (pointer.y - stage.y()) / oldScale
+    };
     const newScale = e.evt.deltaY > 0 ? oldScale / 1.1 : oldScale * 1.1;
     setStageScale(newScale);
-    setStagePos({ x: pointer.x - mousePointTo.x * newScale, y: pointer.y - mousePointTo.y * newScale });
+    setStagePos({
+      x: pointer.x - mousePointTo.x * newScale,
+      y: pointer.y - mousePointTo.y * newScale
+    });
   };
+
+  // --- Guard: no token ---
+  if (!boardToken) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-[#1a1a1a] text-white">
+        <p className="text-red-400 text-lg font-mono">
+          No board ID found in URL. Expected: <code>/board?id=&lt;token&gt;</code>
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen bg-[#1a1a1a] overflow-hidden">
       <Sidebar onAddComponent={addComponent} />
-      
+
       <main className="flex-1 flex flex-col relative bg-[#242424]">
         <TopBar />
-        
+
         <Board
           components={components}
           arrows={arrows}
@@ -175,54 +229,78 @@ const BoardPage: React.FC = () => {
           stageSize={stageSize}
           stagePos={stagePos}
           stageScale={stageScale}
-          onStageDrag={(e) => e.target === e.target.getStage() && setStagePos({ x: e.target.x(), y: e.target.y() })}
+          onStageDrag={(e) =>
+            e.target === e.target.getStage() &&
+            setStagePos({ x: e.target.x(), y: e.target.y() })
+          }
           onWheel={handleWheel}
           onSelect={setSelectedId}
-          onComponentDragMove={(e, id) => handleUpdateComponent(id, { xPos: Math.round(e.target.x()), yPos: Math.round(e.target.y()) })}
+          onComponentDragMove={(e, id) =>
+            handleUpdateComponent(id, {
+              xPos: Math.round(e.target.x()),
+              yPos: Math.round(e.target.y())
+            })
+          }
           onComponentDragEnd={() => takeSnapshot()}
           onStageMouseMove={(e) => {
             if (!draftConnection) return;
             const stage = e.target.getStage()!;
             const pointer = stage.getPointerPosition()!;
-            setDraftConnection(prev => prev ? { 
-              ...prev, 
-              currentX: (pointer.x - stage.x()) / stage.scaleX(), 
-              currentY: (pointer.y - stage.y()) / stage.scaleY() 
+            setDraftConnection(prev => prev ? {
+              ...prev,
+              currentX: (pointer.x - stage.x()) / stage.scaleX(),
+              currentY: (pointer.y - stage.y()) / stage.scaleY()
             } : null);
           }}
           onStageMouseUp={() => {
             if (!draftConnection) return;
-            // Snapping logic for connecting ports omitted for brevity
             setDraftConnection(null);
           }}
-          onPortMouseDown={(nodeId, port, x, y) => setDraftConnection({ startNodeId: nodeId, startPort: port, currentX: x, currentY: y })}
+          onPortMouseDown={(nodeId, port, x, y) =>
+            setDraftConnection({ startNodeId: nodeId, startPort: port, currentX: x, currentY: y })
+          }
           onPortMouseEnter={(nodeId, port) => { hoveredPortRef.current = { nodeId, port }; }}
           onPortMouseLeave={() => { hoveredPortRef.current = null; }}
-          onArrowControlPointDragMove={(id, pos) => setState(prev => ({ ...prev, arrows: prev.arrows.map(a => a.id === id ? { ...a, controlPoint: pos } : a) }))}
-          onArrowHandleDragMove={(id, type, pos) => setState(prev => ({
-            ...prev,
-            arrows: prev.arrows.map(a => a.id === id ? (type === 'start' ? { ...a, fromId: null, fromCoords: pos } : { ...a, toId: null, toCoords: pos }) : a)
-          }))}
+          onArrowControlPointDragMove={(id, pos) =>
+            setState(prev => ({
+              ...prev,
+              arrows: prev.arrows.map(a => a.id === id ? { ...a, controlPoint: pos } : a)
+            }))
+          }
+          onArrowHandleDragMove={(id, type, pos) =>
+            setState(prev => ({
+              ...prev,
+              arrows: prev.arrows.map(a =>
+                a.id === id
+                  ? type === 'start'
+                    ? { ...a, fromId: null, fromCoords: pos }
+                    : { ...a, toId: null, toCoords: pos }
+                  : a
+              )
+            }))
+          }
           onArrowHandleDragEnd={() => takeSnapshot()}
           onUpdateComponent={handleUpdateComponent}
-          // History & Commands
           onUndo={undo}
           onRedo={redo}
           onTakeSnapshot={takeSnapshot}
         />
 
         {selectedComponent && (
-          <PropertiesPanel 
-            selectedComponent={selectedComponent} 
-            onUpdate={(updates) => { takeSnapshot(); handleUpdateComponent(selectedId!, updates); }} 
+          <PropertiesPanel
+            selectedComponent={selectedComponent}
+            onUpdate={(updates) => { takeSnapshot(); handleUpdateComponent(selectedId!, updates); }}
             onDelete={handleDeleteSelected}
-            onClose={() => setSelectedId(null)} 
+            onClose={() => setSelectedId(null)}
           />
         )}
-        
+
         {selectedArrow && (
           <div className="absolute right-4 bottom-4 z-30">
-            <button onClick={handleDeleteSelected} className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition-all">
+            <button
+              onClick={handleDeleteSelected}
+              className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition-all"
+            >
               Delete Selected Arrow
             </button>
           </div>
