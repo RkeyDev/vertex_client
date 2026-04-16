@@ -8,8 +8,8 @@ import TopBar from '../features/board/components/TopBar';
 import PropertiesPanel from '../features/board/components/PropertiesPanel';
 import Board from '../features/board/components/Board';
 
-// API Service
-import { boardApi } from '../features/board/api/BoardApi';
+// Hooks
+import { useBoardSocket } from '../features/board/hooks/useBoardSocket';
 
 // Types
 import {
@@ -85,46 +85,34 @@ const BoardPage: React.FC = () => {
     [arrows, selectedId]
   );
 
-  // --- WebSocket Connection ---
+  const handleRemoteBoardState = useCallback((remoteState: {
+    components: UmlComponent[];
+    arrows: UmlArrow[];
+  }) => {
+    // Mark as remote so the local send effect does not rebroadcast the same update.
+    isRemoteUpdate.current = true;
+    takeSnapshot();
+    setState(remoteState);
+  }, [setState, takeSnapshot]);
+
+  const { sendUpdate } = useBoardSocket({
+    boardToken,
+    onStateReceived: handleRemoteBoardState,
+  });
+
+  // --- Optimistic Local State + Real-Time Sync ---
   useEffect(() => {
-    if (!boardToken) {
-      console.warn('BoardPage: no board token found in URL (?id=...)');
-      return;
-    }
-
-    boardApi.connect(boardToken, (remoteState) => {
-      // Mark as remote so the send effect doesn't echo it back
-      isRemoteUpdate.current = true;
-      takeSnapshot();
-      setState({
-        components: remoteState.shapes ?? [],
-        arrows: remoteState.arrows ?? []
-      });
-    });
-
-    return () => {
-      boardApi.disconnect();
-    };
-  }, [boardToken]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // --- Debounced Send Effect ---
-  useEffect(() => {
-    // Skip sending if this state change came from a remote update
     if (isRemoteUpdate.current) {
       isRemoteUpdate.current = false;
       return;
     }
 
-    // Dropped delay to 50ms for immediate real-time sync feeling.
-    // Also removed the `length > 0` check so deleting all components correctly syncs an empty board to Redis.
-    const id = setTimeout(() => {
-      if (boardToken) {
-        boardApi.saveBoard(components, arrows);
-      }
-    }, 50);
+    if (!boardToken) {
+      return;
+    }
 
-    return () => clearTimeout(id);
-  }, [components, arrows, boardToken]);
+    sendUpdate(components, arrows);
+  }, [boardToken, components, arrows, sendUpdate]);
 
   // --- Core Handlers ---
 
