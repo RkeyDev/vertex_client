@@ -14,9 +14,12 @@ interface ApiResponse<T> {
   timestamp: string;
 }
 
-interface NewBoardRoomResponseDTO {
-  boardToken: string;
+// Updated to match the backend's JoinBoardRoomResponseDTO
+interface JoinBoardRoomResponseDTO {
+  boardName: string;
   boardData: string;
+  boardToken?: string; // Ensure your backend DTO actually includes this property!
+  ownerData?: UserSummary;
 }
 
 interface OwnedBoardsResponse {
@@ -32,14 +35,17 @@ interface NewBoardDTO {
   boardName: string;
 }
 
-interface NewBoardRoomDTO {
-  boardName: string;
+// Replaced NewBoardRoomDTO with the unified JoinBoardRequestDTO
+interface JoinBoardRequestDTO {
+  boardToken?: string;
+  boardName?: string;
+  ownerEmail?: string;
 }
 
 interface UserSummary {
   firstName?: string;
   lastName?: string;
-  username: string;
+  username: string; // Typically acts as the email in Spring Security setups
   avatarUrl?: string;
 }
 
@@ -183,22 +189,28 @@ const DashboardPage: React.FC = () => {
   };
 
   /**
-   * Initializes a room session using the board name and navigates.
+   * Initializes a room session using the board name and user email, then navigates.
    */
   const handleProjectClick = async (name: string) => {
+    if (!user?.username) {
+      alert('User session data missing. Please log in again.');
+      return;
+    }
+
     try {
-      const payload: NewBoardRoomDTO = { boardName: name };
+      // Updated payload to match the backend's new requirement (Name + Email)
+      const payload: JoinBoardRequestDTO = { 
+        boardName: name,
+        ownerEmail: user.username // Assuming username holds the email in this context
+      };
       
-      // Use the specific ResponseDTO here
-      const response = await api.post<ApiResponse<NewBoardRoomResponseDTO>>(`/board/new-room`, payload);
+      const response = await api.post<ApiResponse<JoinBoardRoomResponseDTO>>(`/board/join-room`, payload);
       
       const { responseCode, data } = response.data;
 
-      // Debug log to check the incoming data in the browser console
       console.log("Room Response Data:", data);
 
       if (responseCode === "200" && data?.boardToken) {
-        // Correctly using ?id= for standard query params
         navigate(`/board?id=${data.boardToken}`);
       } else {
         alert(response.data.message || 'Failed to initialize session.');
