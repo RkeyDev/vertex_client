@@ -106,6 +106,20 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
           }
         );
 
+        // Request initial board state after a short delay to ensure subscription is registered on the backend
+        console.log('[STOMP] Requesting initial board state...');
+        setTimeout(() => {
+          if (client.connected) {
+            client.publish({
+              destination: `/app/board/${boardToken}/sync`,
+              body: JSON.stringify({
+                senderId: sessionId,
+                boardStateJson: 'INITIAL_SYNC',
+              }),
+            });
+          }
+        }, 500);
+
         if (pendingPayloadRef.current) {
           console.log('[STOMP] Connected: flushing pending payload');
           if (debouncedPublishRef.current?.flush) {

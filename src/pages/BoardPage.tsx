@@ -100,8 +100,18 @@ const BoardPage: React.FC = () => {
     onStateReceived: handleRemoteBoardState,
   });
 
+  // Prevent sending on initial mount if state is empty
+  const isInitialMount = useRef(true);
+
   // --- Optimistic Local State + Real-Time Sync ---
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      if (components.length === 0 && arrows.length === 0) {
+        return;
+      }
+    }
+
     if (isRemoteUpdate.current) {
       isRemoteUpdate.current = false;
       return;
