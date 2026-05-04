@@ -267,6 +267,56 @@ const BoardPage: React.FC = () => {
           }}
           onStageMouseUp={() => {
             if (!draftConnection) return;
+            
+            // Magnetic snapping: find the closest port within 40px
+            let target = null;
+            let minDistance = 40;
+
+            for (const comp of components) {
+              if (comp.id === draftConnection.startNodeId) continue;
+
+              const ports: { port: PortPosition; px: number; py: number }[] = [
+                { port: 'top', px: comp.xPos + comp.width / 2, py: comp.yPos },
+                { port: 'bottom', px: comp.xPos + comp.width / 2, py: comp.yPos + comp.height },
+                { port: 'left', px: comp.xPos, py: comp.yPos + comp.height / 2 },
+                { port: 'right', px: comp.xPos + comp.width, py: comp.yPos + comp.height / 2 },
+              ];
+
+              for (const p of ports) {
+                const dist = Math.sqrt(
+                  Math.pow(p.px - draftConnection.currentX, 2) + 
+                  Math.pow(p.py - draftConnection.currentY, 2)
+                );
+                if (dist < minDistance) {
+                  minDistance = dist;
+                  target = { nodeId: comp.id, port: p.port };
+                }
+              }
+            }
+
+            // Fallback to strict hover if distance calculation misses (e.g. edge cases)
+            if (!target && hoveredPortRef.current && hoveredPortRef.current.nodeId !== draftConnection.startNodeId) {
+              target = hoveredPortRef.current;
+            }
+
+            if (target) {
+              const newArrow: UmlArrow = {
+                id: `arrow-${Date.now()}`,
+                fromId: draftConnection.startNodeId,
+                fromPort: draftConnection.startPort,
+                toId: target.nodeId,
+                toPort: target.port,
+                type: 'SOLID',
+                headType: 'ARROW'
+              };
+              
+              takeSnapshot();
+              setState(prev => ({
+                ...prev,
+                arrows: [...prev.arrows, newArrow]
+              }));
+            }
+            
             setDraftConnection(null);
           }}
           onPortMouseDown={(nodeId, port, x, y) =>
@@ -292,7 +342,60 @@ const BoardPage: React.FC = () => {
               )
             }))
           }
-          onArrowHandleDragEnd={() => takeSnapshot()}
+          onArrowHandleDragEnd={(id, type) => {
+            const arrow = arrows.find(a => a.id === id);
+            if (!arrow) {
+              takeSnapshot();
+              return;
+            }
+
+            const dropCoords = type === 'start' ? arrow.fromCoords : arrow.toCoords;
+            if (!dropCoords) {
+              takeSnapshot();
+              return;
+            }
+
+            let target = null;
+            let minDistance = 40;
+            const excludeId = type === 'start' ? arrow.toId : arrow.fromId;
+
+            for (const comp of components) {
+              if (comp.id === excludeId) continue;
+
+              const ports: { port: PortPosition; px: number; py: number }[] = [
+                { port: 'top', px: comp.xPos + comp.width / 2, py: comp.yPos },
+                { port: 'bottom', px: comp.xPos + comp.width / 2, py: comp.yPos + comp.height },
+                { port: 'left', px: comp.xPos, py: comp.yPos + comp.height / 2 },
+                { port: 'right', px: comp.xPos + comp.width, py: comp.yPos + comp.height / 2 },
+              ];
+
+              for (const p of ports) {
+                const dist = Math.sqrt(
+                  Math.pow(p.px - dropCoords.x, 2) + 
+                  Math.pow(p.py - dropCoords.y, 2)
+                );
+                if (dist < minDistance) {
+                  minDistance = dist;
+                  target = { nodeId: comp.id, port: p.port };
+                }
+              }
+            }
+
+            if (target) {
+              setState(prev => ({
+                ...prev,
+                arrows: prev.arrows.map(a => 
+                  a.id === id 
+                    ? type === 'start'
+                      ? { ...a, fromId: target.nodeId, fromPort: target.port, fromCoords: undefined }
+                      : { ...a, toId: target.nodeId, toPort: target.port, toCoords: undefined }
+                    : a
+                )
+              }));
+            }
+
+            takeSnapshot();
+          }}
           onUpdateComponent={handleUpdateComponent}
           onUndo={undo}
           onRedo={redo}
