@@ -33,6 +33,11 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
   const debouncedPublishRef = useRef<DebouncedPublisher | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
+  const onStateReceivedRef = useRef(onStateReceived);
+  useEffect(() => {
+    onStateReceivedRef.current = onStateReceived;
+  }, [onStateReceived]);
+
   console.log('[useBoardSocket] Initialized with sessionId:', sessionId);
 
   const publishPayload = useCallback(
@@ -83,7 +88,12 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
                 throw new Error('Received invalid board DTO');
               }
 
-              if (dto.senderId === sessionId) {
+              if (dto.senderId.startsWith('SERVER_INITIAL_SYNC_')) {
+                if (dto.senderId !== `SERVER_INITIAL_SYNC_${sessionId}`) {
+                  console.log('[STOMP] Ignoring initial sync response for another session');
+                  return;
+                }
+              } else if (dto.senderId === sessionId) {
                 console.log('[STOMP] Suppressing echo from own session');
                 return;
               }
@@ -99,7 +109,7 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
               };
 
               console.log('[STOMP] Received remote update:', remoteState);
-              onStateReceived(remoteState);
+              onStateReceivedRef.current(remoteState);
             } catch (error) {
               console.error('[STOMP] Failed to parse remote board update:', error);
             }
@@ -169,7 +179,7 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
       setIsConnected(false);
       pendingPayloadRef.current = null;
     };
-  }, [boardToken, onStateReceived, sessionId, publishPayload]);
+  }, [boardToken, sessionId, publishPayload]);
 
   useEffect(() => {
     if (!boardToken) {
