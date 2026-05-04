@@ -32,6 +32,12 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
   const pendingPayloadRef = useRef<string | null>(null);
   const debouncedPublishRef = useRef<DebouncedPublisher | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  
+  const isReadyRef = useRef(isReady);
+  useEffect(() => {
+    isReadyRef.current = isReady;
+  }, [isReady]);
 
   const onStateReceivedRef = useRef(onStateReceived);
   useEffect(() => {
@@ -88,9 +94,22 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
                 throw new Error('Received invalid board DTO');
               }
 
+              let isInitialSyncResponse = false;
+
               if (dto.senderId.startsWith('SERVER_INITIAL_SYNC_')) {
                 if (dto.senderId !== `SERVER_INITIAL_SYNC_${sessionId}`) {
                   console.log('[STOMP] Ignoring initial sync response for another session');
+                  return;
+                }
+                isInitialSyncResponse = true;
+              } else if (dto.senderId === 'SERVER') {
+                // Fallback: If backend hasn't been recompiled, it will send 'SERVER'.
+                // We only accept it if we aren't ready yet.
+                if (!isReadyRef.current) {
+                  console.log('[STOMP] Received generic SERVER state, using as initial sync (fallback)');
+                  isInitialSyncResponse = true;
+                } else {
+                  console.log('[STOMP] Ignoring generic SERVER broadcast because we are already ready');
                   return;
                 }
               } else if (dto.senderId === sessionId) {
@@ -110,6 +129,11 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
 
               console.log('[STOMP] Received remote update:', remoteState);
               onStateReceivedRef.current(remoteState);
+
+              if (isInitialSyncResponse) {
+                console.log('[STOMP] Initial sync processed, board is ready');
+                setIsReady(true);
+              }
             } catch (error) {
               console.error('[STOMP] Failed to parse remote board update:', error);
             }
@@ -254,6 +278,7 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
   return {
     sessionId,
     isConnected,
+    isReady,
     sendUpdate,
   };
 };
