@@ -1,11 +1,14 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { registerSchema, type RegisterFormData } from '../types';
 import { registerUser } from '../api/authApi';
 import Input from '../../../components/Input';
 
+
 const RegisterForm: React.FC = () => {
+  const navigate = useNavigate();
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
   });
@@ -13,9 +16,10 @@ const RegisterForm: React.FC = () => {
   const onSubmit = async (data: RegisterFormData) => {
     try {
       const response = await registerUser(data);
-      
       if (response.responseCode === "201") {
-        alert('Registration successful!');
+        // Save email to localStorage for resend link button
+        localStorage.setItem('pendingVerificationEmail', data.email);
+        navigate('/verify-email');
       }
     } catch (err: any) {
       alert(err.message); 

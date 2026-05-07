@@ -8,6 +8,12 @@ export const loginUser = async (data: LoginFormData) => {
   return response.data; // This is the ApiResponse object
 };
 
+// Resend verification link
+export const resendVerificationLink = async (emailAddress: string) => {
+  const response = await api.post('/auth/send-verification-link', { emailAddress });
+  return response.data;
+};
+
 export const registerUser = async (data: RegisterFormData) => {
   const { confirmPassword, terms, ...backendData } = data;
   const response = await api.post('/auth/register', backendData);

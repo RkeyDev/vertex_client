@@ -1,9 +1,33 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { resendVerificationLink } from '../features/auth/api/authApi';
 
 const VerifyEmailPage: React.FC = () => {
-  const handleResend = () => {
-    console.log("Resending verification link...");
-    // Trigger your authApi.resendVerification(email) here
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const handleResend = async () => {
+    setLoading(true);
+    setMessage(null);
+    const email = localStorage.getItem('pendingVerificationEmail');
+    if (!email) {
+      setMessage('No email found. Please register again.');
+      setLoading(false);
+      return;
+    }
+    try {
+      const response = await resendVerificationLink(email);
+      if (response.responseCode === '200') {
+        setMessage('Verification link sent! Check your inbox.');
+      } else if (response.responseCode === '404') {
+        setMessage('Email not found. Please register again.');
+      } else {
+        setMessage('Failed to resend link. Try again later.');
+      }
+    } catch (err: any) {
+      setMessage('Error sending verification link.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -23,10 +47,12 @@ const VerifyEmailPage: React.FC = () => {
           
           <button 
             onClick={handleResend}
-            className="bg-[#539160] hover:bg-[#467a51] text-white font-bold py-3 px-12 rounded-lg text-2xl shadow-md transition-all active:scale-95"
+            className="bg-[#539160] hover:bg-[#467a51] text-white font-bold py-3 px-12 rounded-lg text-2xl shadow-md transition-all active:scale-95 disabled:opacity-50"
+            disabled={loading}
           >
-            Resend Link
+            {loading ? 'Sending...' : 'Resend Link'}
           </button>
+          {message && <div className="mt-6 text-lg font-semibold text-blue-700">{message}</div>}
         </div>
 
         {/* Footer Support Link positioned exactly like the Sign In/Up links */}
