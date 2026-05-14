@@ -237,7 +237,12 @@ const DashboardPage: React.FC = () => {
         <nav className="flex-1 mt-10">
           <ul className="space-y-2">
             <li className="bg-gray-300/50 px-8 py-4 text-4xl font-bold text-[#333] cursor-pointer">Projects</li>
-            <li className="px-8 py-4 text-4xl font-bold text-[#333] hover:bg-gray-300 cursor-pointer transition-colors">Settings</li>
+            <li
+              className="px-8 py-4 text-4xl font-bold text-[#333] hover:bg-gray-300 cursor-pointer transition-colors"
+              onClick={() => navigate('/settings')}
+            >
+              Settings
+            </li>
           </ul>
         </nav>
         <div className="p-8">

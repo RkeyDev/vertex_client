@@ -5,6 +5,7 @@ import VerifyEmailPage from './pages/VerifyEmailPage';
 import DashboardPage from './pages/DashboardPage';
 import BoardPage from './pages/BoardPage';
 import EmailVerificationPage from './pages/EmailVerificationPage';
+import SettingsPage from './pages/SettingsPage';
 
 
 /**
@@ -24,8 +25,12 @@ function App() {
         <Route path="/verify-email" element={<VerifyEmailPage />} /> {/* Static info page */}
         <Route path="/email-verification" element={<EmailVerificationPage />} /> {/* Page to handle the handshake */}
 
+
         {/* Dashboard routes */}
         <Route path="/dashboard" element={<DashboardPage />} />
+
+        {/* Settings route */}
+        <Route path="/settings" element={<SettingsPage />} />
 
         {/* Board routes */}
         <Route path="/board" element={<BoardPage />} />
