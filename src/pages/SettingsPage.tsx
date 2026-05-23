@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Input from '../components/Input';
 import UserAvatar from '../components/UserAvatar';
+import { updateProfile } from '../features/auth/api/authApi';
 
 const getUserFromStorage = () => {
   const raw = localStorage.getItem('vertex_user');
@@ -38,12 +39,12 @@ const AvatarEditor: React.FC<AvatarEditorProps> = ({ src, onSave, onCancel }) =>
     const y = SIZE / 2 - h / 2 + off.y;
     ctx.save();
     ctx.beginPath();
-    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, Math.PI * 2);
+    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, 2 * Math.PI, false);
     ctx.clip();
     ctx.drawImage(img, x, y, w, h);
     ctx.restore();
     ctx.beginPath();
-    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 1, 0, Math.PI * 2);
+    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 1, 0, 2 * Math.PI, false);
     ctx.strokeStyle = 'rgba(0,0,0,0.15)';
     ctx.lineWidth = 2;
     ctx.stroke();
@@ -53,7 +54,6 @@ const AvatarEditor: React.FC<AvatarEditorProps> = ({ src, onSave, onCancel }) =>
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
-      // Auto-fit: scale so the image fills the circle
       const fitScale = Math.max(SIZE / img.naturalWidth, SIZE / img.naturalHeight);
       setZoom(fitScale);
       setOffset({ x: 0, y: 0 });
@@ -162,21 +162,26 @@ const AvatarEditor: React.FC<AvatarEditorProps> = ({ src, onSave, onCancel }) =>
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
-  const [username, setUsername] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [rawPreview, setRawPreview] = useState<string | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [showEditor, setShowEditor] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [darkMode, setDarkMode] = useState(false);
 
   useEffect(() => {
     const user = getUserFromStorage();
     if (user) {
+      setFirstName(user.firstName || '');
+      setLastName(user.lastName || '');
       setUsername(user.username || '');
-      setEmail(user.email || user.username || '');
+      setEmail(user.email || '');
       setAvatarUrl(user.avatarUrl || '');
     }
     setDarkMode(localStorage.getItem('vertex_dark_mode') === 'true');
@@ -212,14 +217,45 @@ const SettingsPage: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleProfileSave = (e: React.FormEvent) => {
+  const handleProfileSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    const user = getUserFromStorage() || {};
-    user.username = username;
-    user.avatarUrl = avatarPreview || avatarUrl;
-    user.email = email;
-    localStorage.setItem('vertex_user', JSON.stringify(user));
-    alert('Profile updated! (demo only)');
+    setIsSubmitting(true);
+
+    try {
+      // Dispatches values directly matching the backend UpdateProfileDTO
+      const response = await updateProfile({
+        firstName,
+        lastName,
+        avatarUrl: avatarPreview || avatarUrl
+      });
+
+      if (response && response.responseCode === '200') {
+        const currentStoredUser = getUserFromStorage() || {};
+        
+        // Merge the backend updated entity metadata back into persistent cache context
+        const updatedUser = {
+          ...currentStoredUser,
+          firstName: response.data.userSummary.firstName,
+          lastName: response.data.userSummary.lastName,
+          avatarUrl: response.data.userSummary.avatarUrl
+        };
+
+        localStorage.setItem('vertex_user', JSON.stringify(updatedUser));
+        
+        // Instantly force re-render across standard listening interfaces
+        setAvatarUrl(updatedUser.avatarUrl);
+        setAvatarPreview(null);
+        
+        alert('Profile saved successfully!');
+      } else {
+        alert(`Failed to save profile: ${response.message || 'Unknown server error'}`);
+      }
+    } catch (err: any) {
+      console.error('Error modifying backend user configurations:', err);
+      alert(err.response?.data?.message || 'Network exception encountered during execution.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const displayAvatar = avatarPreview || avatarUrl;
@@ -311,15 +347,21 @@ const SettingsPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-4">
-                  <Input label="Username" value={username} onChange={(e) => setUsername(e.target.value)} required />
-                  <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                  <div className="flex gap-4">
+                    <Input label="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+                    <Input label="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+                  </div>
+                  <Input label="Username" value={username} disabled />
+                  <Input label="Email" type="email" value={email} disabled />
+                  <p className="text-xs text-gray-400 px-1 -mt-2">Username and account email parameters are immutable once registered.</p>
                 </div>
 
                 <button
                   type="submit"
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-2 rounded-lg shadow transition-all"
+                  disabled={isSubmitting}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-2 rounded-lg shadow transition-all disabled:opacity-50"
                 >
-                  Save Profile
+                  {isSubmitting ? 'Saving...' : 'Save Profile'}
                 </button>
               </form>
             </section>
