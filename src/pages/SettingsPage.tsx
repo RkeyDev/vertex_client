@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Input from '../components/Input';
 import UserAvatar from '../components/UserAvatar';
-import { updateProfile } from '../features/auth/api/authApi';
+import { updateProfile, logoutUser } from '../features/auth/api/authApi';
 
 const getUserFromStorage = () => {
   const raw = localStorage.getItem('vertex_user');
@@ -174,6 +174,25 @@ const SettingsPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [darkMode, setDarkMode] = useState(false);
+
+  const handleLogout = async () => {
+    const refreshToken = localStorage.getItem('vertex_refresh_token');
+    
+    if (refreshToken) {
+      try {
+        await logoutUser(refreshToken);
+      } catch (err) {
+        console.error("Backend logout call failed:", err);
+      }
+    }
+
+    // Always clear localStorage and redirect, even if API call fails
+    localStorage.removeItem('vertex_access_token');
+    localStorage.removeItem('vertex_refresh_token');
+    localStorage.removeItem('vertex_user');
+    
+    navigate('/register', { replace: true });
+  };
 
   useEffect(() => {
     const user = getUserFromStorage();
@@ -383,6 +402,20 @@ const SettingsPage: React.FC = () => {
                 </button>
                 <span className="text-gray-500 text-sm">{darkMode ? 'Dark' : 'Light'} mode</span>
               </div>
+            </section>
+
+            <hr className="border-gray-300" />
+
+            {/* Session Section */}
+            <section>
+              <h3 className="text-xs font-bold text-[#444] mb-4 uppercase tracking-widest">Session</h3>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold px-8 py-2.5 rounded-lg shadow-md transition-all active:scale-95 flex items-center"
+              >
+                Logout
+              </button>
             </section>
 
           </div>

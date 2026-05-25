@@ -32,3 +32,11 @@ export const updateProfile = async (data: UpdateProfileFormData) => {
   const response = await api.post('/auth/profile/update', data);
   return response.data;
 };
+
+/**
+ * Performs a logout call on the backend by passing the refresh token to be invalidated.
+ */
+export const logoutUser = async (refreshToken: string) => {
+  const response = await api.post('/auth/logout', { refreshToken });
+  return response.data;
+};

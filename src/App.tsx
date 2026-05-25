@@ -6,6 +6,7 @@ import DashboardPage from './pages/DashboardPage';
 import BoardPage from './pages/BoardPage';
 import EmailVerificationPage from './pages/EmailVerificationPage';
 import SettingsPage from './pages/SettingsPage';
+import ProtectedRoute from './components/ProtectedRoute';
 
 
 /**
@@ -27,19 +28,21 @@ function App() {
 
 
         {/* Dashboard routes */}
-        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
 
         {/* Settings route */}
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
 
         {/* Board routes */}
-        <Route path="/board" element={<BoardPage />} />
+        <Route path="/board" element={<ProtectedRoute><BoardPage /></ProtectedRoute>} />
 
         {/* 404 - Page Not Found fallback */}
         <Route path="*" element={
-          <div className="flex items-center justify-center h-screen">
-            <h1 className="text-2xl font-bold">404 - Page Not Found</h1>
-          </div>
+          <ProtectedRoute>
+            <div className="flex items-center justify-center h-screen">
+              <h1 className="text-2xl font-bold">404 - Page Not Found</h1>
+            </div>
+          </ProtectedRoute>
         } />
       </Routes>
     </Router>
