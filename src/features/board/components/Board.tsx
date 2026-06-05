@@ -6,7 +6,6 @@ import {
   type UmlArrow, 
   type DraftConnection, 
   type PortPosition,
-  ComponentType 
 } from '../types/board.types';
 import CanvasNode from './CanvasNode';
 import CanvasArrow, { getPortCoordinates } from './CanvasArrow';
@@ -24,28 +23,31 @@ interface BoardProps {
   onWheel: (e: KonvaEventObject<WheelEvent>) => void;
   onSelect: (id: string | null) => void;
   onComponentDragMove: (e: KonvaEventObject<DragEvent>, id: string) => void;
-  onComponentDragEnd: (e: KonvaEventObject<DragEvent>, id: string) => void;
-  onUpdateComponent: (id: string, updates: Partial<UmlComponent>) => void;
+  onComponentTransformMove?: (id: string, updates: { xPos: number; yPos: number; width: number; height: number }) => void;
+  /** Called when a drag or resize interaction ends (persist full board). */
+  onCommitInteraction: () => void;
   onStageMouseMove: (e: KonvaEventObject<MouseEvent>) => void;
   onStageMouseUp: (e: KonvaEventObject<MouseEvent>) => void;
+  /** Fired during drags/transforms when Stage onMouseMove is suppressed */
+  onPointerActivity?: (e: KonvaEventObject<MouseEvent | DragEvent>) => void;
   onPortMouseDown: (nodeId: string, port: PortPosition, x: number, y: number) => void;
   onPortMouseEnter: (nodeId: string, port: PortPosition) => void;
   onPortMouseLeave: () => void;
-  onArrowControlPointDragMove: (arrowId: string, newPos: { x: number, y: number }) => void;
+  onArrowControlPointDragMove: (arrowId: string, newPos: { x: number, y: number }, e: KonvaEventObject<DragEvent>) => void;
+  onArrowControlPointDragEnd: (arrowId: string) => void;
   onArrowHandleDragMove: (arrowId: string, handleType: 'start' | 'end', newPos: { x: number, y: number }, e: KonvaEventObject<DragEvent>) => void;
   onArrowHandleDragEnd: (arrowId: string, handleType: 'start' | 'end') => void;
   // History Actions (Command Pattern)
   onUndo: () => void;
   onRedo: () => void;
-  onTakeSnapshot: () => void;
 }
 
 const Board: React.FC<BoardProps> = memo(({
   components, arrows, selectedId, draftConnection, stageSize, stagePos, stageScale,
-  onStageDrag, onWheel, onSelect, onComponentDragMove, onComponentDragEnd, onUpdateComponent,
-  onStageMouseMove, onStageMouseUp, onPortMouseDown, onPortMouseEnter, onPortMouseLeave,
-  onArrowControlPointDragMove, onArrowHandleDragMove, onArrowHandleDragEnd,
-  onUndo, onRedo, onTakeSnapshot
+  onStageDrag, onWheel, onSelect, onComponentDragMove, onComponentTransformMove,
+  onStageMouseMove, onStageMouseUp, onPointerActivity, onPortMouseDown, onPortMouseEnter, onPortMouseLeave,
+  onArrowControlPointDragMove, onArrowControlPointDragEnd, onArrowHandleDragMove, onArrowHandleDragEnd,
+  onUndo, onRedo, onCommitInteraction
 }) => {
   const trRef = useRef<any>(null);
   const nodesRef = useRef<Map<string, any>>(new Map());
@@ -86,7 +88,7 @@ const Board: React.FC<BoardProps> = memo(({
    * Synchronizes scale values into absolute width/height to ensure 
    * text and strokes don't look distorted.
    */
-  const handleTransform = useCallback(() => {
+  const handleTransform = useCallback((e?: KonvaEventObject<Event>) => {
     if (!selectedId || !trRef.current) return;
 
     const node = trRef.current.nodes()[0];
@@ -106,23 +108,33 @@ const Board: React.FC<BoardProps> = memo(({
       scaleY: 1,
     });
 
-    onUpdateComponent(selectedId, {
+    const patch = {
       width: Math.round(newWidth),
       height: Math.round(newHeight),
-      xPos: Math.round(node.x()), 
+      xPos: Math.round(node.x()),
       yPos: Math.round(node.y()),
-    });
-  }, [selectedId, onUpdateComponent]);
+    };
+
+    onComponentTransformMove?.(selectedId, patch);
+
+    if (e) {
+      onPointerActivity?.(e as KonvaEventObject<MouseEvent | DragEvent>);
+    }
+  }, [selectedId, onComponentTransformMove, onPointerActivity]);
 
   const handleTransformEnd = useCallback(() => {
     setIsTransforming(false);
-    onTakeSnapshot(); // Finalize change in History Stack
-  }, [onTakeSnapshot]);
+    onCommitInteraction();
+  }, [onCommitInteraction]);
 
-  const handleDragEndInternal = useCallback((e: KonvaEventObject<DragEvent>, id: string) => {
-    onComponentDragEnd(e, id);
-    onTakeSnapshot(); // Finalize movement in History Stack
-  }, [onComponentDragEnd, onTakeSnapshot]);
+  const handleComponentDragMove = useCallback((e: KonvaEventObject<DragEvent>, id: string) => {
+    onComponentDragMove(e, id);
+    onPointerActivity?.(e);
+  }, [onComponentDragMove, onPointerActivity]);
+
+  const handleDragEndInternal = useCallback(() => {
+    onCommitInteraction();
+  }, [onCommitInteraction]);
 
   // --- Grid Visuals ---
   const GRID_SIZE = 40;
@@ -176,6 +188,7 @@ const Board: React.FC<BoardProps> = memo(({
               isSelected={selectedId === arrow.id}
               onClick={() => onSelect(arrow.id)}
               onControlPointDragMove={onArrowControlPointDragMove}
+              onControlPointDragEnd={onArrowControlPointDragEnd}
               onHandleDragMove={onArrowHandleDragMove}
               onHandleDragEnd={onArrowHandleDragEnd}
             />
@@ -193,8 +206,8 @@ const Board: React.FC<BoardProps> = memo(({
               isSelected={selectedId === comp.id}
               isTransforming={isTransforming}
               onClick={() => onSelect(comp.id)}
-              onDragMove={(e: any) => onComponentDragMove(e, comp.id)}
-              onDragEnd={(e: any) => handleDragEndInternal(e, comp.id)}
+              onDragMove={(e: any) => handleComponentDragMove(e, comp.id)}
+              onDragEnd={() => handleDragEndInternal()}
               onTransform={handleTransform} 
               onTransformEnd={handleTransformEnd}
               onPortMouseDown={onPortMouseDown}
@@ -223,7 +236,7 @@ const Board: React.FC<BoardProps> = memo(({
                 return newBox;
               }}
               onTransformStart={() => setIsTransforming(true)}
-              onTransform={handleTransform} 
+              onTransform={(e) => handleTransform(e)}
               onTransformEnd={handleTransformEnd}
             />
           )}

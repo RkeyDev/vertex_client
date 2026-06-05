@@ -57,7 +57,7 @@ class BoardWebSocketClient {
     return new Promise((resolve, reject) => {
       // Use environment variable for the broker URL to support Docker/Production
       // Fallback uses 127.0.0.1 to avoid IPv6 resolution issues with 'localhost'
-      const brokerUrl = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8080/ws';
+      const brokerUrl = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:9080/ws';
 
       this.client = new Client({
         brokerURL: brokerUrl,

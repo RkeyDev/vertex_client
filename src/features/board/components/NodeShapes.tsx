@@ -1,7 +1,6 @@
 import React from 'react';
 import { 
   type UmlComponent, 
-  ComponentType 
 } from '../types/board.types';
 import { Rect, Group, Text, Line, Path } from 'react-konva';
 

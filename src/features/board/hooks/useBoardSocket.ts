@@ -7,73 +7,201 @@ export interface BoardState {
   arrows: UmlArrow[];
 }
 
+export interface BoardTransform {
+  componentId: string;
+  xPos: number;
+  yPos: number;
+  width?: number;
+  height?: number;
+  senderId: string;
+}
+
 interface BoardStateDTO {
   senderId: string;
   boardStateJson: string;
 }
 
-interface DebouncedPublisher {
-  (payload: string): void;
-  cancel?: () => void;
-  flush?: () => void;
-}
-
 interface UseBoardSocketProps {
   boardToken: string | null;
   onStateReceived: (state: BoardState) => void;
+  onTransformReceived: (transform: BoardTransform) => void;
 }
 
-const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8080/ws';
+const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:9080/ws';
+// Throttle for component drag updates sent to server during dragging
+// ~30fps for smooth real-time visualization on remote clients
+const TRANSFORM_THROTTLE_MS = 33;
 
-export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketProps) => {
+export const useBoardSocket = ({
+  boardToken,
+  onStateReceived,
+  onTransformReceived,
+}: UseBoardSocketProps) => {
   const sessionId = useMemo(() => crypto.randomUUID(), []);
   const clientRef = useRef<Client | null>(null);
-  const subscriptionRef = useRef<StompSubscription | null>(null);
-  const pendingPayloadRef = useRef<string | null>(null);
-  const debouncedPublishRef = useRef<DebouncedPublisher | null>(null);
+  const syncSubscriptionRef = useRef<StompSubscription | null>(null);
+  const transformSubscriptionRef = useRef<StompSubscription | null>(null);
+  const pendingSyncPayloadRef = useRef<string | null>(null);
+  const lastTransformSendRef = useRef<number>(0);
+  const pendingTransformRef = useRef<BoardTransform | null>(null);
+  const transformThrottleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isReady, setIsReady] = useState(false);
-  
+
   const isReadyRef = useRef(isReady);
   useEffect(() => {
     isReadyRef.current = isReady;
   }, [isReady]);
 
   const onStateReceivedRef = useRef(onStateReceived);
+  const onTransformReceivedRef = useRef(onTransformReceived);
   useEffect(() => {
     onStateReceivedRef.current = onStateReceived;
   }, [onStateReceived]);
+  useEffect(() => {
+    onTransformReceivedRef.current = onTransformReceived;
+  }, [onTransformReceived]);
 
-  console.log('[useBoardSocket] Initialized with sessionId:', sessionId);
-
-  const publishPayload = useCallback(
+  const publishSyncPayload = useCallback(
     (payload: string) => {
       const client = clientRef.current;
-      console.log('[publishPayload] Called. Client connected:', client?.connected, 'boardToken:', !!boardToken);
-
       if (!client?.connected || !boardToken) {
-        console.log('[publishPayload] Client not ready, storing pending payload');
-        pendingPayloadRef.current = payload;
+        pendingSyncPayloadRef.current = payload;
         return;
       }
 
-      console.log('[publishPayload] Publishing to /app/board/' + boardToken + '/sync');
       client.publish({
         destination: `/app/board/${boardToken}/sync`,
         body: payload,
       });
-      pendingPayloadRef.current = null;
+      pendingSyncPayloadRef.current = null;
     },
     [boardToken]
   );
 
+  const publishTransformNow = useCallback((): boolean => {
+    const client = clientRef.current;
+    const transform = pendingTransformRef.current;
+    if (!boardToken || !transform) {
+      return false;
+    }
+
+    // Check if client is connected (use both connected and active states)
+    if (!client || (!client.connected && !client.active)) {
+      console.log('[publishTransformNow] Not connected. Client:', !!client, 'Connected:', client?.connected, 'Active:', client?.active);
+      return false;
+    }
+
+    try {
+      console.log('[publishTransformNow] Publishing transform:', {
+        componentId: transform.componentId,
+        xPos: transform.xPos,
+        yPos: transform.yPos,
+        destination: `/app/board/${boardToken}/transform`,
+      });
+      
+      client.publish({
+        destination: `/app/board/${boardToken}/transform`,
+        body: JSON.stringify(transform),
+      });
+      lastTransformSendRef.current = performance.now();
+      pendingTransformRef.current = null;
+      console.log('[publishTransformNow] Successfully published');
+      return true;
+    } catch (error) {
+      console.warn('[publishTransformNow] Failed to publish transform:', error);
+      return false;
+    }
+  }, [boardToken]);
+
+  const scheduleTransformFlush = useCallback(() => {
+    if (transformThrottleTimerRef.current) return;
+
+    const elapsed = performance.now() - lastTransformSendRef.current;
+    const delay = Math.max(0, TRANSFORM_THROTTLE_MS - elapsed);
+
+    transformThrottleTimerRef.current = setTimeout(() => {
+      transformThrottleTimerRef.current = null;
+      const published = publishTransformNow();
+      
+      // If publish failed but we still have pending data, keep retrying
+      if (!published && pendingTransformRef.current) {
+        const client = clientRef.current;
+        if (client && (client.connected || client.active)) {
+          // Socket is connected but publish failed, retry
+          console.log('[scheduleTransformFlush] Publish failed, retrying...');
+          scheduleTransformFlush();
+        } else {
+          // Socket not connected, wait a bit and retry
+          console.log('[scheduleTransformFlush] Socket not ready, retrying in', TRANSFORM_THROTTLE_MS, 'ms');
+          scheduleTransformFlush();
+        }
+      }
+    }, delay);
+  }, [publishTransformNow]);
+
+  const sendTransform = useCallback(
+    (transform: Omit<BoardTransform, 'senderId'>) => {
+      if (!boardToken) return;
+
+      const fullTransform = { ...transform, senderId: sessionId };
+      pendingTransformRef.current = fullTransform;
+
+      console.log('[sendTransform] Queued transform:', {
+        componentId: transform.componentId,
+        xPos: transform.xPos,
+        yPos: transform.yPos,
+        connected: clientRef.current?.connected,
+      });
+
+      const elapsed = performance.now() - lastTransformSendRef.current;
+      if (elapsed >= TRANSFORM_THROTTLE_MS) {
+        // Enough time has passed since last send, try to send immediately
+        console.log('[sendTransform] Publishing immediately (throttle OK)');
+        if (!publishTransformNow()) {
+          // If immediate publish failed, schedule for later
+          console.log('[sendTransform] Immediate publish failed, scheduling retry');
+          scheduleTransformFlush();
+        }
+        return;
+      }
+
+      // Not enough time elapsed, schedule send for later
+      console.log('[sendTransform] Throttling, will send in', Math.max(0, TRANSFORM_THROTTLE_MS - elapsed), 'ms');
+      scheduleTransformFlush();
+    },
+    [boardToken, sessionId, publishTransformNow, scheduleTransformFlush]
+  );
+
+  const flushTransform = useCallback(() => {
+    if (transformThrottleTimerRef.current) {
+      clearTimeout(transformThrottleTimerRef.current);
+      transformThrottleTimerRef.current = null;
+    }
+    publishTransformNow();
+  }, [publishTransformNow]);
+
+  const sendFullSync = useCallback(
+    (components: UmlComponent[], arrows: UmlArrow[]) => {
+      if (!boardToken) return;
+
+      const payload = JSON.stringify({
+        senderId: sessionId,
+        boardStateJson: JSON.stringify({ components, arrows }),
+      });
+
+      publishSyncPayload(payload);
+    },
+    [boardToken, publishSyncPayload, sessionId]
+  );
+
   useEffect(() => {
     if (!boardToken) {
-      console.warn('[useBoardSocket] No board token, skipping connection');
       return undefined;
     }
 
-    console.log('[useBoardSocket] Creating STOMP client for board:', boardToken);
+    console.log('[useBoardSocket] Initializing with boardToken:', boardToken);
+
     const client = new Client({
       brokerURL: DEFAULT_WS_URL,
       reconnectDelay: 5000,
@@ -81,11 +209,16 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
       heartbeatOutgoing: 4000,
 
       onConnect: () => {
-        console.log('[STOMP] Connected! Subscribing to /topic/board/' + boardToken);
+        console.log('[WebSocket] Connected! Setting up subscriptions...');
+        console.log('[WebSocket] Client state:', {
+          connected: client.connected,
+          active: client.active,
+          brokerURL: client.brokerURL,
+        });
         setIsConnected(true);
 
-        subscriptionRef.current?.unsubscribe();
-        subscriptionRef.current = client.subscribe(
+        syncSubscriptionRef.current?.unsubscribe();
+        syncSubscriptionRef.current = client.subscribe(
           `/topic/board/${boardToken}`,
           (message) => {
             try {
@@ -98,22 +231,16 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
 
               if (dto.senderId.startsWith('SERVER_INITIAL_SYNC_')) {
                 if (dto.senderId !== `SERVER_INITIAL_SYNC_${sessionId}`) {
-                  console.log('[STOMP] Ignoring initial sync response for another session');
                   return;
                 }
                 isInitialSyncResponse = true;
               } else if (dto.senderId === 'SERVER') {
-                // Fallback: If backend hasn't been recompiled, it will send 'SERVER'.
-                // We only accept it if we aren't ready yet.
                 if (!isReadyRef.current) {
-                  console.log('[STOMP] Received generic SERVER state, using as initial sync (fallback)');
                   isInitialSyncResponse = true;
                 } else {
-                  console.log('[STOMP] Ignoring generic SERVER broadcast because we are already ready');
                   return;
                 }
               } else if (dto.senderId === sessionId) {
-                console.log('[STOMP] Suppressing echo from own session');
                 return;
               }
 
@@ -123,15 +250,17 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
               }
 
               const remoteState = {
-                components: Array.isArray((parsed as any).components) ? (parsed as any).components : [],
-                arrows: Array.isArray((parsed as any).arrows) ? (parsed as any).arrows : [],
+                components: Array.isArray((parsed as { components?: unknown }).components)
+                  ? (parsed as { components: UmlComponent[] }).components
+                  : [],
+                arrows: Array.isArray((parsed as { arrows?: unknown }).arrows)
+                  ? (parsed as { arrows: UmlArrow[] }).arrows
+                  : [],
               };
 
-              console.log('[STOMP] Received remote update:', remoteState);
               onStateReceivedRef.current(remoteState);
 
               if (isInitialSyncResponse) {
-                console.log('[STOMP] Initial sync processed, board is ready');
                 setIsReady(true);
               }
             } catch (error) {
@@ -140,8 +269,58 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
           }
         );
 
-        // Request initial board state after a short delay to ensure subscription is registered on the backend
-        console.log('[STOMP] Requesting initial board state...');
+        transformSubscriptionRef.current?.unsubscribe();
+        transformSubscriptionRef.current = client.subscribe(
+          `/topic/board/${boardToken}/transform`,
+          (message) => {
+            console.log('[Transform subscription] Message received on transform topic');
+            try {
+              console.log('[Transform received] Raw message body:', message.body);
+              
+              const raw = JSON.parse(message.body) as any;
+              const transform: BoardTransform = {
+                componentId: raw.componentId || raw.id,
+                xPos: raw.xPos ?? raw.xpos ?? raw.x,
+                yPos: raw.yPos ?? raw.ypos ?? raw.y,
+                width: raw.width,
+                height: raw.height,
+                senderId: raw.senderId,
+              };
+
+              if (
+                !transform ||
+                typeof transform.componentId !== 'string' ||
+                typeof transform.xPos !== 'number' ||
+                typeof transform.yPos !== 'number' ||
+                typeof transform.senderId !== 'string'
+              ) {
+                throw new Error('Received invalid transform DTO');
+              }
+
+              console.log('[Transform received] Parsed transform:', {
+                componentId: transform.componentId,
+                xPos: transform.xPos,
+                yPos: transform.yPos,
+                senderId: transform.senderId,
+                currentSessionId: sessionId,
+                isOwnTransform: transform.senderId === sessionId,
+              });
+
+              if (transform.senderId === sessionId) {
+                console.log('[Transform received] Ignoring own transform');
+                return;
+              }
+
+              console.log('[Transform received] Applying remote transform');
+              onTransformReceivedRef.current(transform);
+            } catch (error) {
+              console.error('[STOMP] Failed to parse remote transform:', error);
+            }
+          }
+        );
+
+        console.log('[WebSocket] Transform subscription set up for:', `/topic/board/${boardToken}/transform`);
+
         setTimeout(() => {
           if (client.connected) {
             client.publish({
@@ -154,13 +333,13 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
           }
         }, 500);
 
-        if (pendingPayloadRef.current) {
-          console.log('[STOMP] Connected: flushing pending payload');
-          if (debouncedPublishRef.current?.flush) {
-            debouncedPublishRef.current.flush();
-          } else {
-            console.log('[STOMP] Debounce not ready, publishing pending payload directly');
-            publishPayload(pendingPayloadRef.current);
+        if (pendingSyncPayloadRef.current) {
+          publishSyncPayload(pendingSyncPayloadRef.current);
+        }
+
+        if (pendingTransformRef.current) {
+          if (!publishTransformNow()) {
+            scheduleTransformFlush();
           }
         }
       },
@@ -171,7 +350,6 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
       },
 
       onDisconnect: () => {
-        console.log('[STOMP] Disconnected');
         setIsConnected(false);
       },
 
@@ -180,105 +358,37 @@ export const useBoardSocket = ({ boardToken, onStateReceived }: UseBoardSocketPr
           console.error('[WebSocket] Transport error:', event.message, event.error);
         } else if (event instanceof CloseEvent) {
           console.warn('[WebSocket] Connection closed:', event.code, event.reason);
-        } else {
-          console.debug('[WebSocket] Transport event:', event.type || event.constructor.name || event);
         }
-
         setIsConnected(false);
       },
     });
 
     clientRef.current = client;
-    console.log('[useBoardSocket] Activating STOMP client');
     client.activate();
 
     return () => {
-      console.log('[useBoardSocket] Cleaning up STOMP client');
-      debouncedPublishRef.current?.cancel?.();
-      debouncedPublishRef.current = null;
-      subscriptionRef.current?.unsubscribe();
-      subscriptionRef.current = null;
+      if (transformThrottleTimerRef.current) {
+        clearTimeout(transformThrottleTimerRef.current);
+        transformThrottleTimerRef.current = null;
+      }
+      syncSubscriptionRef.current?.unsubscribe();
+      syncSubscriptionRef.current = null;
+      transformSubscriptionRef.current?.unsubscribe();
+      transformSubscriptionRef.current = null;
       client.deactivate();
       clientRef.current = null;
       setIsConnected(false);
-      pendingPayloadRef.current = null;
+      pendingSyncPayloadRef.current = null;
+      pendingTransformRef.current = null;
     };
-  }, [boardToken, sessionId, publishPayload]);
-
-  useEffect(() => {
-    if (!boardToken) {
-      return undefined;
-    }
-
-    let active = true;
-
-    console.log('[useBoardSocket] Loading debounce module...');
-    import('lodash.debounce')
-      .then((mod) => {
-        if (!active) {
-          console.log('[useBoardSocket] Debounce module loaded but effect was cleaned up');
-          return;
-        }
-
-        console.log('[useBoardSocket] Debounce module loaded successfully');
-        const debounceFn = (mod.default ?? mod) as (
-          fn: (payload: string) => void,
-          wait: number
-        ) => ((payload: string) => void) & { cancel?: () => void; flush?: () => void };
-
-        debouncedPublishRef.current = debounceFn((payload: string) => {
-          console.log('[debounce] Publishing debounced payload');
-          publishPayload(payload);
-        }, 100);
-
-        if (pendingPayloadRef.current) {
-          console.log('[useBoardSocket] Debounce loaded, sending pending payload');
-          debouncedPublishRef.current(pendingPayloadRef.current);
-        }
-      })
-      .catch((error) => {
-        console.error('[WebSocket] Failed to initialize debounce:', error);
-      });
-
-    return () => {
-      active = false;
-      debouncedPublishRef.current?.cancel?.();
-      debouncedPublishRef.current = null;
-    };
-  }, [boardToken, publishPayload]);
-
-  const sendUpdate = useCallback(
-    (components: UmlComponent[], arrows: UmlArrow[]) => {
-      if (!boardToken) {
-        console.warn('useBoardSocket: cannot send update without board token');
-        return;
-      }
-
-      const payload = JSON.stringify({
-        senderId: sessionId,
-        boardStateJson: JSON.stringify({ components, arrows }),
-      });
-
-      console.log('[sendUpdate] Called with', components.length, 'components and', arrows.length, 'arrows');
-      console.log('[sendUpdate] Debounced fn ready:', !!debouncedPublishRef.current);
-
-      pendingPayloadRef.current = payload;
-
-      if (debouncedPublishRef.current) {
-        console.log('[sendUpdate] Using debounced publish');
-        debouncedPublishRef.current(payload);
-      } else {
-        console.log('[sendUpdate] Debounce not ready, calling publishPayload directly');
-        publishPayload(payload);
-      }
-    },
-    [boardToken, publishPayload, sessionId]
-  );
+  }, [boardToken, sessionId, publishSyncPayload, publishTransformNow, scheduleTransformFlush]);
 
   return {
     sessionId,
     isConnected,
     isReady,
-    sendUpdate,
+    sendTransform,
+    flushTransform,
+    sendFullSync,
   };
 };

@@ -31,7 +31,7 @@ const EmailVerificationPage = () => {
             try {
                 isProcessing.current = true; // Set lock before request
                 
-                const response = await axios.post('http://localhost:8080/api/v1/auth/email-verification', {
+                const response = await axios.post('http://localhost:9080/api/v1/auth/email-verification', {
                     verificationToken: token,
                     email: email
                 });

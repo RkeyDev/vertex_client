@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api/axiosInstance';
 import ProjectCard from '../../src/features/projects/components/ProjectCard.tsx';
 import UserAvatar from '../components/UserAvatar.tsx';
+import type { RoomProfileItem } from '../features/board/hooks/useCursorSocket';
 
 // --- Interfaces ---
 
@@ -20,6 +21,10 @@ interface JoinBoardRoomResponseDTO {
   boardData: string;
   boardToken?: string; // Ensure your backend DTO actually includes this property!
   ownerData?: UserSummary;
+  // Optional cursor-sync fields returned by backend join-room
+  id?: number;
+  userId?: number;
+  userProfiles?: Record<string, string> | RoomProfileItem[];
 }
 
 interface OwnedBoardsResponse {
@@ -211,7 +216,24 @@ const DashboardPage: React.FC = () => {
       console.log("Room Response Data:", data);
 
       if (responseCode === "200" && data?.boardToken) {
-        navigate(`/board?id=${data.boardToken}`);
+        // Persist join-room cursor metadata for BoardPage RAM hydration
+        // (all optional, depends on backend payload).
+        if (data.userProfiles) {
+          sessionStorage.setItem(
+            `vertex_cursor_profiles:${data.boardToken}`,
+            JSON.stringify(data.userProfiles)
+          );
+        }
+        const joinedId = data.id ?? data.userId;
+        if (typeof joinedId === 'number' && Number.isFinite(joinedId)) {
+          sessionStorage.setItem(`vertex_cursor_id:${data.boardToken}`, String(joinedId | 0));
+        }
+        navigate(`/board?id=${data.boardToken}`, {
+          state: {
+            cursorProfiles: data.userProfiles ?? {},
+            cursorId: (typeof joinedId === 'number' && Number.isFinite(joinedId)) ? (joinedId | 0) : undefined,
+          },
+        });
       } else {
         alert(response.data.message || 'Failed to initialize session.');
       }

@@ -15,7 +15,8 @@ interface CanvasArrowProps {
   onClick: () => void;
   onHandleDragMove: (arrowId: string, handleType: 'start' | 'end', newPos: { x: number, y: number }, e: KonvaEventObject<DragEvent>) => void;
   onHandleDragEnd: (arrowId: string, handleType: 'start' | 'end') => void;
-  onControlPointDragMove: (arrowId: string, newPos: { x: number, y: number }) => void;
+  onControlPointDragMove: (arrowId: string, newPos: { x: number, y: number }, e: KonvaEventObject<DragEvent>) => void;
+  onControlPointDragEnd: (arrowId: string) => void;
 }
 
 export const getPortCoordinates = (node: UmlComponent, port: PortPosition) => {
@@ -31,7 +32,7 @@ export const getPortCoordinates = (node: UmlComponent, port: PortPosition) => {
 
 const CanvasArrow: React.FC<CanvasArrowProps> = memo(({
   arrow, fromNode, toNode, isSelected, onClick, 
-  onHandleDragMove, onHandleDragEnd, onControlPointDragMove
+  onHandleDragMove, onHandleDragEnd, onControlPointDragMove, onControlPointDragEnd
 }) => {
   // Calculate Start Point
   const start = fromNode && arrow.fromPort 
@@ -80,7 +81,8 @@ const CanvasArrow: React.FC<CanvasArrowProps> = memo(({
           {/* Quadratic Curve Control Handle */}
           <Circle
             x={control.x} y={control.y} radius={6} fill="white" stroke="#3b82f6" strokeWidth={2} draggable
-            onDragMove={(e) => onControlPointDragMove(arrow.id, { x: e.target.x(), y: e.target.y() })}
+            onDragMove={(e) => onControlPointDragMove(arrow.id, { x: e.target.x(), y: e.target.y() }, e)}
+            onDragEnd={() => onControlPointDragEnd(arrow.id)}
           />
         </>
       )}

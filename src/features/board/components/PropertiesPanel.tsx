@@ -1,7 +1,6 @@
 import React from 'react';
 import { 
   type UmlComponent, 
-  ComponentType 
 } from '../types/board.types';
 
 interface PropertiesPanelProps {

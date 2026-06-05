@@ -54,6 +54,15 @@ const CanvasNode = memo(forwardRef<any, CanvasNodeProps>(({
     }
   }, [displayFontSize]);
 
+  // Force Konva to update the internal position when props change.
+  // This bypasses the react-konva draggable quirk where it ignores x/y prop changes.
+  useEffect(() => {
+    if (internalRef.current && !isTransforming) {
+      internalRef.current.position({ x: component.xPos, y: component.yPos });
+      internalRef.current.getLayer()?.batchDraw();
+    }
+  }, [component.xPos, component.yPos, isTransforming]);
+
   const renderShape = () => {
     const props = { component, isSelected };
     switch (component.type) {

@@ -9,25 +9,22 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
-    // Port for the frontend dev server
-    port: 5174, 
+    port: 5174,
     proxy: {
-      /**
-       * Proxying API requests to the Spring Boot backend.
-       * A request to http://localhost:5174/api/v1/auth/login 
-       * will be forwarded to http://localhost:8080/api/v1/auth/login
-       */
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:9080',
         changeOrigin: true,
         secure: false,
-        // Optional: rewrite path if the backend doesn't expect the "/api" prefix
-        // rewrite: (path) => path.replace(/^\/api/, ''),
       },
-      // Proxying WebSocket connections for real-time UML collaboration
       '/ws': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:9080',
         ws: true,
+        changeOrigin: true,
+      },
+      '/sync-cursor': {
+        target: 'http://localhost:9080',
+        ws: true,
+        changeOrigin: true,
       },
     },
   },

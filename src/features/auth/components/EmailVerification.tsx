@@ -13,7 +13,7 @@ const EmailVerification = () => {
 
             try {
                 // Sending the POST request your backend expects
-                await axios.post('http://localhost:8080/api/auth/email-verification', {
+                await axios.post('http://localhost:9080/api/auth/email-verification', {
                     verificationToken: token,
                     email: email
                 });
@@ -32,3 +32,5 @@ const EmailVerification = () => {
         </div>
     );
 };
+
+export default EmailVerification;
