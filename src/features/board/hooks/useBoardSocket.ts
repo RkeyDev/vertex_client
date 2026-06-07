@@ -153,22 +153,15 @@ export const useBoardSocket = ({
         yPos: transform.yPos,
         connected: clientRef.current?.connected,
       });
-
-      const elapsed = performance.now() - lastTransformSendRef.current;
-      if (elapsed >= TRANSFORM_THROTTLE_MS) {
-        // Enough time has passed since last send, try to send immediately
-        console.log('[sendTransform] Publishing immediately (throttle OK)');
-        if (!publishTransformNow()) {
-          // If immediate publish failed, schedule for later
-          console.log('[sendTransform] Immediate publish failed, scheduling retry');
-          scheduleTransformFlush();
-        }
-        return;
+      // Always attempt to publish immediately so remote peers receive
+      // live updates during a drag. If the publish cannot proceed (e.g.
+      // socket not connected or broker busy), fall back to the existing
+      // throttled retry scheduler so the pending transform is delivered.
+      console.log('[sendTransform] Attempting immediate publish for live drag');
+      if (!publishTransformNow()) {
+        console.log('[sendTransform] Immediate publish failed, scheduling retry');
+        scheduleTransformFlush();
       }
-
-      // Not enough time elapsed, schedule send for later
-      console.log('[sendTransform] Throttling, will send in', Math.max(0, TRANSFORM_THROTTLE_MS - elapsed), 'ms');
-      scheduleTransformFlush();
     },
     [boardToken, sessionId, publishTransformNow, scheduleTransformFlush]
   );

@@ -260,8 +260,11 @@ const BoardPage: React.FC = () => {
     arrows: UmlArrow[];
   }) => {
     takeSnapshot();
+    // Full sync received: apply authoritative state and clear any
+    // transient live transform previews so clients converge.
     setState(remoteState);
-  }, [setState, takeSnapshot]);
+    setLiveTransforms({});
+  }, [setState, takeSnapshot, setLiveTransforms]);
 
   const handleRemoteTransform = useCallback((transform: BoardTransform) => {
     console.log('[handleRemoteTransform] Received:', {
@@ -269,31 +272,20 @@ const BoardPage: React.FC = () => {
       xPos: transform.xPos,
       yPos: transform.yPos,
     });
-    
-    setState(prev => {
-      const updated = {
-        ...prev,
-        components: prev.components.map((c) =>
-          c.id !== transform.componentId
-            ? c
-            : {
-                ...c,
-                xPos: transform.xPos,
-                yPos: transform.yPos,
-                ...(transform.width  != null ? { width:  transform.width  } : {}),
-                ...(transform.height != null ? { height: transform.height } : {}),
-              }
-        ),
-      };
-      
-      console.log('[handleRemoteTransform] Updated component:', {
-        componentId: transform.componentId,
-        newComponent: updated.components.find(c => c.id === transform.componentId),
-      });
-      
-      return updated;
-    });
-  }, [setState]);
+    // For live drag UX, treat remote transforms as transient "live"
+    // updates so they render immediately without mutating the
+    // authoritative React state until a full sync arrives.
+    setLiveTransforms(prev => ({
+      ...prev,
+      [transform.componentId]: {
+        xPos: transform.xPos,
+        yPos: transform.yPos,
+        ...(transform.width  != null ? { width:  transform.width  } : {}),
+        ...(transform.height != null ? { height: transform.height } : {}),
+      }
+    }));
+    console.log('[handleRemoteTransform] Applied live transform preview for:', transform.componentId);
+  }, [setLiveTransforms]);
 
   const { sendTransform, flushTransform, sendFullSync, isReady } = useBoardSocket({
     boardToken,
@@ -302,7 +294,13 @@ const BoardPage: React.FC = () => {
   });
 
   const publishFullSync = useCallback(() => {
-    sendFullSync(componentsRef.current, arrowsRef.current);
+    // Merge any in-flight live transforms into the authoritative
+    // components snapshot so remote clients see live positions.
+    const mergedComponents = componentsRef.current.map(c => {
+      const patch = liveTransformsRef.current.get(c.id);
+      return patch ? ({ ...c, ...patch }) : c;
+    });
+    sendFullSync(mergedComponents, arrowsRef.current);
   }, [sendFullSync]);
 
   /** Throttled full sync for arrow drags (arrows use /sync, not /transform). */
@@ -361,7 +359,10 @@ const BoardPage: React.FC = () => {
       width:  patch.width,
       height: patch.height,
     });
-  }, [sendTransform]);
+    // Also publish a throttled full-sync that merges live patches so
+    // servers that don't forward /transform live still see movement.
+    publishLiveBoardSync();
+  }, [sendTransform, publishLiveBoardSync]);
 
   /**
    * Called when the user finishes a drag, resize, or any other interaction.
