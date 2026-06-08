@@ -147,6 +147,7 @@ export function useCursorSocket({
     for (const [id, raw] of Object.entries(rawProfiles)) {
       profileStoreRef.current[String(id)] = parseProfileEntry(String(id), raw);
     }
+    console.log('[seedProfiles] Profiles seeded, profileStoreRef now:', profileStoreRef.current);
   }, []);
 
   // Ensure the local user's own profile is always present in RAM.
@@ -156,6 +157,7 @@ export function useCursorSocket({
       username: username?.trim() || localId,
       avatar: avatarUrl?.trim() || null,
     };
+    console.log('[useCursorSocket useEffect] Local profile set for id:', localId, 'profileStoreRef now:', profileStoreRef.current);
   }, [cursorId, username, avatarUrl]);
 
   // ── Connect ──────────────────────────────────────────────────────────────────
@@ -184,9 +186,11 @@ export function useCursorSocket({
       // Ensure we have a profile entry (may have arrived before seed)
       if (!profileStoreRef.current[remoteId]) {
         profileStoreRef.current[remoteId] = { username: remoteId, avatar: null };
+        console.log('[onmessage] Created placeholder profile for unknown remoteId:', remoteId, 'profileStoreRef now:', profileStoreRef.current);
       }
 
       const profile = profileStoreRef.current[remoteId];
+      console.log('[onmessage] Cursor received - remoteId:', remoteId, 'x:', x, 'y:', y, 'profile:', profile, 'full profileStoreRef:', profileStoreRef.current);
 
       // Update cursor map
       remoteCursorsRef.current = {
@@ -203,16 +207,19 @@ export function useCursorSocket({
         onCursorUpdateRef.current(next);
       }, CURSOR_TIMEOUT_MS);
 
+      console.log('[onmessage] Calling onCursorUpdate with remoteCursorsRef:', remoteCursorsRef.current);
       onCursorUpdateRef.current(remoteCursorsRef.current);
     };
 
     ws.onclose = () => {
       // Clear all cursors on disconnect
+      console.log('[ws.onclose] WebSocket closed, clearing cursors and profileStoreRef');
       remoteCursorsRef.current = {};
       onCursorUpdateRef.current({});
     };
 
     return () => {
+      console.log('[useCursorSocket cleanup] Disconnecting, profileStoreRef was:', profileStoreRef.current);
       ws.close();
       wsRef.current = null;
       Object.values(timeoutsRef.current).forEach(clearTimeout);
@@ -224,6 +231,7 @@ export function useCursorSocket({
   const sendCursorPosition = useCallback((x: number, y: number) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    console.log('[sendCursorPosition] Sending cursor packet - cursorId:', cursorId, 'x:', x, 'y:', y, 'profileStoreRef:', profileStoreRef.current);
     ws.send(encodeCursorPacket(cursorId, x, y));
   }, [cursorId]);
 

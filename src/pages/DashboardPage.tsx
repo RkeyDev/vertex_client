@@ -34,6 +34,7 @@ interface OwnedBoardsResponse {
 interface Board {
   id: string;
   boardName: string;
+  lastSaved: string; // ISO-8601 timestamp string: e.g., "2026-06-07T12:36:20.370372Z"
 }
 
 interface NewBoardDTO {
@@ -150,6 +151,27 @@ const DashboardPage: React.FC = () => {
       return `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
     }
     return user.username.substring(0, 2).toUpperCase();
+  };
+
+  /**
+   * Helper function to format ISO timestamps into an actionable, clean layout.
+   */
+  const formatLastSaved = (isoString: string): string => {
+    if (!isoString) return 'Never';
+    try {
+      const date = new Date(isoString);
+      if (isNaN(date.getTime())) return 'Unknown';
+      
+      return date.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+    } catch {
+      return 'Unknown';
+    }
   };
 
   const fetchBoards = useCallback(async () => {
@@ -300,6 +322,7 @@ const DashboardPage: React.FC = () => {
                 <ProjectCard
                   key={project.id}
                   title={project.boardName}
+                  lastSaved={formatLastSaved(project.lastSaved)}
                   avatarUrl={user?.avatarUrl}
                   initials={getInitials()}
                   onClick={() => handleProjectClick(project.boardName)}
