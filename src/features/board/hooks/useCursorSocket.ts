@@ -106,6 +106,36 @@ export function useCursorSocket({
   const onCursorUpdateRef = useRef(onCursorUpdate);
   onCursorUpdateRef.current = onCursorUpdate;
 
+  // ── Helper: refresh any already-rendered cursors whose profiles changed ──────
+  const refreshCursorProfiles = useCallback(() => {
+    const cursors = remoteCursorsRef.current;
+    const ids = Object.keys(cursors);
+    if (ids.length === 0) return;
+
+    let changed = false;
+    const next = { ...cursors };
+
+    for (const id of ids) {
+      const latestProfile = profileStoreRef.current[id];
+      if (!latestProfile) continue;
+
+      const current = next[id];
+      // Update if the stored cursor still has a stale/fallback profile
+      if (
+        current.profile.username !== latestProfile.username ||
+        current.profile.avatar   !== latestProfile.avatar
+      ) {
+        next[id] = { ...current, profile: latestProfile };
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      remoteCursorsRef.current = next;
+      onCursorUpdateRef.current(next);
+    }
+  }, []);
+
   // ── Seed profiles from the join-room REST response ───────────────────────────
   const seedProfiles = useCallback((
     rawProfiles: Record<string, string | UserProfile> | RoomProfileItem[]
@@ -116,12 +146,15 @@ export function useCursorSocket({
         const id = String(profile.id);
         profileStoreRef.current[id] = parseProfileEntry(id, profile);
       }
-      return;
+    } else {
+      for (const [id, raw] of Object.entries(rawProfiles)) {
+        profileStoreRef.current[String(id)] = parseProfileEntry(String(id), raw);
+      }
     }
-    for (const [id, raw] of Object.entries(rawProfiles)) {
-      profileStoreRef.current[String(id)] = parseProfileEntry(String(id), raw);
-    }
-  }, []);
+
+    // Retroactively update any cursors that were rendered with fallback profiles
+    refreshCursorProfiles();
+  }, [refreshCursorProfiles]);
 
   // Keep local user's own profile up to date in the store
   useEffect(() => {
@@ -157,8 +190,49 @@ export function useCursorSocket({
         console.log('[useCursorSocket] Connected, cursorId:', cursorId);
       };
 
-      ws.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-        const decoded = decodeCursorPacket(event.data);
+      ws.onmessage = (event: MessageEvent) => {
+        // ── Handle text messages (profile announcements from the server) ──
+        if (typeof event.data === 'string') {
+          try {
+            const msg = JSON.parse(event.data);
+
+            // Profile announcement: { type: "profile", id, username, avatar }
+            // or profile list:      { type: "profiles", profiles: [...] }
+            // or plain object:      { id, username, avatar/avatarUrl }
+            if (msg.type === 'profiles' && Array.isArray(msg.profiles)) {
+              for (const p of msg.profiles) {
+                if (p?.id == null) continue;
+                const pid = String(p.id);
+                profileStoreRef.current[pid] = parseProfileEntry(pid, p);
+              }
+              refreshCursorProfiles();
+              return;
+            }
+
+            if (msg.id != null && (msg.username || msg.avatar || msg.avatarUrl)) {
+              const pid = String(msg.id);
+              profileStoreRef.current[pid] = {
+                username: (msg.username ?? pid).trim(),
+                avatar:   (msg.avatar ?? msg.avatarUrl ?? null)?.trim() || null,
+              };
+              refreshCursorProfiles();
+              return;
+            }
+          } catch {
+            // Not JSON — ignore text messages we can't parse
+          }
+          return;
+        }
+
+        // ── Handle binary messages (cursor position packets) ──
+        const buffer = event.data instanceof ArrayBuffer
+          ? event.data
+          : (event.data as Blob) // shouldn't happen with binaryType='arraybuffer'
+            ? undefined
+            : undefined;
+
+        if (!buffer) return;
+        const decoded = decodeCursorPacket(buffer);
         if (!decoded) return;
 
         const { x, y, id: remoteIdInt } = decoded;
@@ -217,7 +291,7 @@ export function useCursorSocket({
       Object.values(timeoutsRef.current).forEach(clearTimeout);
       timeoutsRef.current = {};
     };
-  }, [boardToken, cursorId, username, avatarUrl]);
+  }, [boardToken, cursorId, username, avatarUrl, refreshCursorProfiles]);
 
   // ── Send local cursor position ───────────────────────────────────────────────
   const sendCursorPosition = useCallback((x: number, y: number) => {

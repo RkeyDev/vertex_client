@@ -267,6 +267,51 @@ const BoardPage: React.FC = () => {
       });
   }, [boardToken]); // intentionally omit locationState/seedProfiles to run once
 
+  // ── Auto-fetch profiles for unknown cursors ──────────────────────────────────
+  // When the first client joins, it only gets its own profile. When a second
+  // client joins later, the first client starts receiving cursor packets but has
+  // no profile data for the new user (so it falls back to showing the raw ID).
+  // This effect detects that situation and re-fetches profiles from the server.
+  const unknownProfileFetchedRef = useRef<Set<string>>(new Set());
+  const profileFetchTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!boardToken) return;
+
+    // Find cursors with fallback profiles that we haven't tried to fetch yet
+    const unknownCursors = Object.values(remoteCursors).filter(
+      c => c.profile.username === c.userId && !unknownProfileFetchedRef.current.has(c.userId)
+    );
+
+    if (unknownCursors.length === 0) return;
+
+    // Mark immediately so subsequent renders don't trigger duplicate fetches
+    for (const c of unknownCursors) {
+      unknownProfileFetchedRef.current.add(c.userId);
+    }
+
+    // Debounce: batch multiple unknown IDs that may appear in quick succession
+    if (profileFetchTimerRef.current) clearTimeout(profileFetchTimerRef.current);
+    profileFetchTimerRef.current = setTimeout(() => {
+      profileFetchTimerRef.current = null;
+      console.log('[BoardPage] Re-fetching profiles for unknown cursor IDs:', unknownCursors.map(c => c.userId));
+      api.post('/board/join-room', { boardToken })
+        .then((res: any) => {
+          const data = res.data?.data;
+          if (data?.profiles) {
+            seedProfiles(data.profiles);
+          }
+        })
+        .catch((err: any) => {
+          console.error('[BoardPage] Profile re-fetch failed:', err);
+          // Allow retry on failure
+          for (const c of unknownCursors) {
+            unknownProfileFetchedRef.current.delete(c.userId);
+          }
+        });
+    }, 500);
+  }, [boardToken, remoteCursors, seedProfiles]);
+
   const lastCursorSendRef    = useRef<number>(0);
   const lastLiveBoardSyncRef = useRef<number>(0);
 
