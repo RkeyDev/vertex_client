@@ -273,7 +273,6 @@ const BoardPage: React.FC = () => {
   // no profile data for the new user (so it falls back to showing the raw ID).
   // This effect detects that situation and re-fetches profiles from the server.
   const unknownProfileFetchedRef = useRef<Set<string>>(new Set());
-  const profileFetchTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!boardToken) return;
@@ -290,26 +289,20 @@ const BoardPage: React.FC = () => {
       unknownProfileFetchedRef.current.add(c.userId);
     }
 
-    // Debounce: batch multiple unknown IDs that may appear in quick succession
-    if (profileFetchTimerRef.current) clearTimeout(profileFetchTimerRef.current);
-    profileFetchTimerRef.current = setTimeout(() => {
-      profileFetchTimerRef.current = null;
-      console.log('[BoardPage] Re-fetching profiles for unknown cursor IDs:', unknownCursors.map(c => c.userId));
-      api.post('/board/join-room', { boardToken })
-        .then((res: any) => {
-          const data = res.data?.data;
-          if (data?.profiles) {
-            seedProfiles(data.profiles);
-          }
-        })
-        .catch((err: any) => {
-          console.error('[BoardPage] Profile re-fetch failed:', err);
-          // Allow retry on failure
-          for (const c of unknownCursors) {
-            unknownProfileFetchedRef.current.delete(c.userId);
-          }
-        });
-    }, 500);
+    api.post('/board/join-room', { boardToken })
+      .then((res: any) => {
+        const data = res.data?.data;
+        if (data?.profiles) {
+          seedProfiles(data.profiles);
+        }
+      })
+      .catch((err: any) => {
+        console.error('[BoardPage] Profile re-fetch failed:', err);
+        // Allow retry on failure
+        for (const c of unknownCursors) {
+          unknownProfileFetchedRef.current.delete(c.userId);
+        }
+      });
   }, [boardToken, remoteCursors, seedProfiles]);
 
   const lastCursorSendRef    = useRef<number>(0);
@@ -523,7 +516,9 @@ const BoardPage: React.FC = () => {
   const selectedArrow     = arrows.find(a => a.id === selectedId);
 
   const remoteCursorsFiltered = Object.fromEntries(
-    Object.entries(remoteCursors).filter(([id]) => id !== String(cursorId))
+    Object.entries(remoteCursors).filter(([id, cursor]) =>
+      id !== String(cursorId) && cursor.profile.username !== cursor.userId
+    )
   );
 
   return (
