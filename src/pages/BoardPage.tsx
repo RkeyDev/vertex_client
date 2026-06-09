@@ -2,18 +2,16 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { type KonvaEventObject } from 'konva/lib/Node';
 import { useLocation, useSearchParams } from 'react-router-dom';
 
-// Features & Components
 import Sidebar from '../features/board/components/SideBar';
 import TopBar from '../features/board/components/TopBar';
 import PropertiesPanel from '../features/board/components/PropertiesPanel';
 import Board from '../features/board/components/Board';
 import RemoteCursors from '../features/board/components/RemoteCursors';
 
-// Hooks
 import { useBoardSocket, type BoardTransform } from '../features/board/hooks/useBoardSocket';
 import { useCursorSocket, type RemoteCursor, type RoomProfileItem, type UserProfile } from '../features/board/hooks/useCursorSocket';
+import api from '../api/axiosInstance';
 
-// Types
 import {
   ComponentType,
   type UmlComponent,
@@ -25,10 +23,25 @@ import {
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
 function useCurrentUser(): { userId: string; username: string; avatarUrl: string | undefined } {
+  const rawData = localStorage.getItem('vertex_user');
+  const user = rawData
+    ? (() => { try { return JSON.parse(rawData); } catch { return null; } })()
+    : null;
+
+  const firstName: string = user?.firstName ?? '';
+  const lastName: string  = user?.lastName  ?? '';
+  const fullName = (firstName + ' ' + lastName).trim();
+
+  // Never pass base64 data URLs as the avatar — WebSocket query strings
+  // have length limits. Only pass http/https URLs.
+  const rawAvatar: string | undefined = user?.avatarUrl;
+  const safeAvatarUrl =
+    rawAvatar && rawAvatar.startsWith('http') ? rawAvatar : undefined;
+
   return {
-    userId:    (window as any).__VERTEX_USER_ID__    ?? 'anon-' + Math.random().toString(36).slice(2),
-    username:  (window as any).__VERTEX_USERNAME__   ?? 'Anonymous',
-    avatarUrl: (window as any).__VERTEX_AVATAR_URL__ ?? undefined,
+    userId:    user?.username ?? 'anon-' + Math.random().toString(36).slice(2),
+    username:  fullName || user?.username || 'Anonymous',
+    avatarUrl: safeAvatarUrl,
   };
 }
 
@@ -38,21 +51,14 @@ function getOrCreateCursorId(boardToken: string | null): number {
     const existing = sessionStorage.getItem(key) ?? localStorage.getItem(key);
     if (existing != null) {
       const parsed = Number(existing);
-      if (Number.isFinite(parsed)) return parsed | 0;
+      if (Number.isFinite(parsed) && parsed > 0) return parsed | 0;
     }
-  } catch {
-    // ignore storage failures
-  }
+  } catch { /* ignore */ }
 
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
-  const generated = ((buf[0] | 0) || 1);
-
-  try {
-    sessionStorage.setItem(key, String(generated));
-  } catch {
-    // ignore
-  }
+  const generated = (buf[0] % 1_000_000) || 1; // keep it a small positive int
+  try { sessionStorage.setItem(key, String(generated)); } catch { /* ignore */ }
   return generated;
 }
 
@@ -75,9 +81,7 @@ interface BoardLocationState {
   cursorId?: number;
 }
 
-function normalizeProfiles(
-  source: unknown
-): Record<string, string | UserProfile> {
+function normalizeProfiles(source: unknown): Record<string, string | UserProfile> {
   const normalized: Record<string, string | UserProfile> = {};
 
   if (Array.isArray(source)) {
@@ -87,7 +91,7 @@ function normalizeProfiles(
       if (profile.id == null) continue;
       normalized[String(profile.id)] = {
         username: profile.username ?? String(profile.id),
-        avatar: profile.avatar ?? null,
+        avatar:   profile.avatar   ?? null,
       };
     }
     return normalized;
@@ -101,7 +105,7 @@ function normalizeProfiles(
         const obj = value as UserProfile;
         normalized[String(id)] = {
           username: obj.username ?? String(id),
-          avatar: obj.avatar ?? null,
+          avatar:   obj.avatar   ?? null,
         };
       }
     }
@@ -110,22 +114,22 @@ function normalizeProfiles(
   return normalized;
 }
 
-// ─── Internal History Logic ───────────────────────────────────────────────────
+// ─── History ──────────────────────────────────────────────────────────────────
 
-const useHistory = (initialState: { components: UmlComponent[], arrows: UmlArrow[] }) => {
-  const [state, setState] = useState(initialState);
-  const [past, setPast]   = useState<typeof initialState[]>([]);
+const useHistory = (initialState: { components: UmlComponent[]; arrows: UmlArrow[] }) => {
+  const [state, setState]   = useState(initialState);
+  const [past, setPast]     = useState<typeof initialState[]>([]);
   const [future, setFuture] = useState<typeof initialState[]>([]);
 
   const takeSnapshot = useCallback(() => {
-    setPast((prev) => [...prev, state]);
+    setPast(prev => [...prev, state]);
     setFuture([]);
   }, [state]);
 
   const undo = useCallback(() => {
     if (past.length === 0) return;
     const previous = past[past.length - 1];
-    setFuture((prev) => [state, ...prev]);
+    setFuture(prev => [state, ...prev]);
     setPast(past.slice(0, -1));
     setState(previous);
   }, [past, state]);
@@ -133,7 +137,7 @@ const useHistory = (initialState: { components: UmlComponent[], arrows: UmlArrow
   const redo = useCallback(() => {
     if (future.length === 0) return;
     const next = future[0];
-    setPast((prev) => [...prev, state]);
+    setPast(prev => [...prev, state]);
     setFuture(future.slice(1));
     setState(next);
   }, [future, state]);
@@ -141,24 +145,26 @@ const useHistory = (initialState: { components: UmlComponent[], arrows: UmlArrow
   return { state, setState, takeSnapshot, undo, redo };
 };
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const SIDEBAR_WIDTH  = 256;
-const TOPBAR_HEIGHT  = 48;
-
+const SIDEBAR_WIDTH      = 256;
+const TOPBAR_HEIGHT      = 48;
 const CURSOR_THROTTLE_MS = 33;
 const LIVE_BOARD_SYNC_MS = 50;
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 const BoardPage: React.FC = () => {
-  const location = useLocation();
+  const location      = useLocation();
   const locationState = (location.state as BoardLocationState | null) ?? null;
   const [searchParams] = useSearchParams();
-  const boardToken = searchParams.get('id');
+  const boardToken    = searchParams.get('id');
 
   const currentUser = useCurrentUser();
+
   const cursorId = useMemo(() => {
     const stateCursorId = locationState?.cursorId;
-    if (typeof stateCursorId === 'number' && Number.isFinite(stateCursorId)) {
+    if (typeof stateCursorId === 'number' && Number.isFinite(stateCursorId) && stateCursorId > 0) {
       return stateCursorId | 0;
     }
     return getOrCreateCursorId(boardToken);
@@ -166,30 +172,23 @@ const BoardPage: React.FC = () => {
 
   const { state, setState, takeSnapshot, undo, redo } = useHistory({
     components: [],
-    arrows: []
+    arrows: [],
   });
 
   const { components, arrows } = state;
   const componentsRef = useRef(components);
-  const arrowsRef = useRef(arrows);
+  const arrowsRef     = useRef(arrows);
   componentsRef.current = components;
-  arrowsRef.current = arrows;
+  arrowsRef.current     = arrows;
 
-  // Tracks the latest in-flight positions for components being dragged/resized.
-  // We don't write these to React state during the drag (Konva owns the visual),
-  // but we need them so commitInteraction can flush the correct final positions.
   const liveTransformsRef = useRef<Map<string, {
-    xPos: number;
-    yPos: number;
-    width?: number;
-    height?: number;
+    xPos: number; yPos: number; width?: number; height?: number;
   }>>(new Map());
 
-  const [selectedId, setSelectedId]             = useState<string | null>(null);
-  const [draftConnection, setDraftConnection]   = useState<DraftConnection | null>(null);
-  const hoveredPortRef                          = useRef<{ nodeId: string, port: PortPosition } | null>(null);
+  const [selectedId,      setSelectedId]     = useState<string | null>(null);
+  const [draftConnection, setDraftConnection] = useState<DraftConnection | null>(null);
+  const hoveredPortRef                        = useRef<{ nodeId: string; port: PortPosition } | null>(null);
 
-  // Stage Viewport State
   const [stagePos,   setStagePos]   = useState({ x: 0, y: 0 });
   const [stageScale, setStageScale] = useState(1);
   const [stageSize,  setStageSize]  = useState({
@@ -198,112 +197,115 @@ const BoardPage: React.FC = () => {
   });
 
   useEffect(() => {
-    const handleResize = () => {
-      setStageSize({
-        width:  window.innerWidth  - SIDEBAR_WIDTH,
-        height: window.innerHeight - TOPBAR_HEIGHT,
-      });
-    };
-
+    const handleResize = () => setStageSize({
+      width:  window.innerWidth  - SIDEBAR_WIDTH,
+      height: window.innerHeight - TOPBAR_HEIGHT,
+    });
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // ── Remote cursors state ─────────────────────────────────────────────────────
-  const [remoteCursors, setRemoteCursors] = useState<Record<string, RemoteCursor>>({});
+  const [remoteCursors,  setRemoteCursors]  = useState<Record<string, RemoteCursor>>({});
   const [liveTransforms, setLiveTransforms] = useState<Record<string, {
-    xPos: number;
-    yPos: number;
-    width?: number;
-    height?: number;
+    xPos: number; yPos: number; width?: number; height?: number;
   }>>({});
 
-  // ── Cursor socket ────────────────────────────────────────────────────────────
+  // ── Cursor socket ─────────────────────────────────────────────────────────────
   const { sendCursorPosition, seedProfiles } = useCursorSocket({
     boardToken,
     cursorId,
     username:  currentUser.username,
-    avatarUrl: currentUser.avatarUrl,
+    avatarUrl: currentUser.avatarUrl, // already stripped of base64 in useCurrentUser
     onCursorUpdate: setRemoteCursors,
   });
 
+  // Seed profiles from nav state or sessionStorage
   useEffect(() => {
     if (!boardToken) return;
 
     const storedProfiles = normalizeProfiles(getStoredBoardProfiles(boardToken));
-    const roomProfiles = normalizeProfiles(locationState?.cursorProfiles ?? {});
-    const mergedProfiles = {
-      ...storedProfiles,
-      ...roomProfiles,
-    };
+    const roomProfiles   = normalizeProfiles(locationState?.cursorProfiles ?? {});
+    const mergedProfiles = { ...storedProfiles, ...roomProfiles };
 
     const localId = String(cursorId);
-    mergedProfiles[localId] =
-      `username: ${currentUser.username},\navatar: ${currentUser.avatarUrl ?? ''}`;
+    mergedProfiles[localId] = {
+      username: currentUser.username,
+      avatar:   currentUser.avatarUrl ?? null,
+    };
 
     try {
       sessionStorage.setItem(`vertex_cursor_profiles:${boardToken}`, JSON.stringify(mergedProfiles));
       sessionStorage.setItem(`vertex_cursor_id:${boardToken}`, String(cursorId));
-    } catch {
-      // ignore storage failures
-    }
+    } catch { /* ignore */ }
 
     seedProfiles(mergedProfiles);
   }, [boardToken, cursorId, currentUser.username, currentUser.avatarUrl, locationState?.cursorProfiles, seedProfiles]);
 
-  const lastCursorSendRef = useRef<number>(0);
+  // ── Join-room on direct URL navigation ───────────────────────────────────────
+  // Must be here with all other hooks, BEFORE any conditional returns.
+  useEffect(() => {
+    if (!boardToken) return;
+    if (locationState?.cursorId != null) return; // came from dashboard, already joined
+
+    api.post('/board/join-room', { boardToken })
+      .then((res: any) => {
+        const data = res.data?.data;
+        console.log('Direct URL join-room response:', JSON.stringify(data, null, 2));
+        if (data?.profiles) {
+          seedProfiles(data.profiles);
+        }
+        // Persist server-assigned cursor id for this session
+        if (data?.currentUserProfileId != null) {
+          const serverId = parseInt(data.currentUserProfileId, 10);
+          if (Number.isFinite(serverId) && serverId > 0) {
+            try { sessionStorage.setItem(`vertex_cursor_id:${boardToken}`, String(serverId)); } catch { /* ignore */ }
+          }
+        }
+      })
+      .catch((err: any) => {
+        console.error('Direct URL join-room failed:', err);
+      });
+  }, [boardToken]); // intentionally omit locationState/seedProfiles to run once
+
+  const lastCursorSendRef    = useRef<number>(0);
   const lastLiveBoardSyncRef = useRef<number>(0);
 
-  // ── Board data socket ────────────────────────────────────────────────────────
+  // ── Board socket ──────────────────────────────────────────────────────────────
   const handleRemoteBoardState = useCallback((remoteState: {
     components: UmlComponent[];
     arrows: UmlArrow[];
   }) => {
     takeSnapshot();
-    // Full sync received: apply authoritative state and clear any
-    // transient live transform previews so clients converge.
     setState(remoteState);
     setLiveTransforms({});
-  }, [setState, takeSnapshot, setLiveTransforms]);
+  }, [setState, takeSnapshot]);
 
   const handleRemoteTransform = useCallback((transform: BoardTransform) => {
-    console.log('[handleRemoteTransform] Received:', {
-      componentId: transform.componentId,
-      xPos: transform.xPos,
-      yPos: transform.yPos,
-    });
-    // For live drag UX, treat remote transforms as transient "live"
-    // updates so they render immediately without mutating the
-    // authoritative React state until a full sync arrives.
     setLiveTransforms(prev => ({
       ...prev,
       [transform.componentId]: {
-        xPos: transform.xPos,
-        yPos: transform.yPos,
+        xPos:   transform.xPos,
+        yPos:   transform.yPos,
         ...(transform.width  != null ? { width:  transform.width  } : {}),
         ...(transform.height != null ? { height: transform.height } : {}),
-      }
+      },
     }));
-    console.log('[handleRemoteTransform] Applied live transform preview for:', transform.componentId);
-  }, [setLiveTransforms]);
+  }, []);
 
   const { sendTransform, flushTransform, sendFullSync, isReady } = useBoardSocket({
     boardToken,
-    onStateReceived: handleRemoteBoardState,
+    onStateReceived:     handleRemoteBoardState,
     onTransformReceived: handleRemoteTransform,
   });
 
   const publishFullSync = useCallback(() => {
-    // Merge any in-flight live transforms into the authoritative
-    // components snapshot so remote clients see live positions.
     const mergedComponents = componentsRef.current.map(c => {
       const patch = liveTransformsRef.current.get(c.id);
-      return patch ? ({ ...c, ...patch }) : c;
+      return patch ? { ...c, ...patch } : c;
     });
     sendFullSync(mergedComponents, arrowsRef.current);
   }, [sendFullSync]);
 
-  /** Throttled full sync for arrow drags (arrows use /sync, not /transform). */
   const publishLiveBoardSync = useCallback(() => {
     const now = performance.now();
     if (now - lastLiveBoardSyncRef.current < LIVE_BOARD_SYNC_MS) return;
@@ -313,8 +315,7 @@ const BoardPage: React.FC = () => {
 
   const applyAndSync = useCallback((
     updater: (prev: { components: UmlComponent[]; arrows: UmlArrow[] }) => {
-      components: UmlComponent[];
-      arrows: UmlArrow[];
+      components: UmlComponent[]; arrows: UmlArrow[];
     }
   ) => {
     setState(prev => {
@@ -324,61 +325,21 @@ const BoardPage: React.FC = () => {
     });
   }, [setState, sendFullSync]);
 
-  /**
-   * Called on every drag-move / resize-move event.
-   *
-   * We deliberately do NOT call setState here — Konva already moves the node
-   * visually without React needing to re-render. Writing to state on every pixel
-   * would cause unnecessary re-renders and can fight Konva's own drag handling.
-   *
-   * Instead we:
-   *   1. Record the latest position in liveTransformsRef so commitInteraction
-   *      can flush the correct final value into React state after the drag ends.
-   *   2. Call sendTransform so remote peers see the movement in real time
-   *      (throttled to TRANSFORM_THROTTLE_MS inside useBoardSocket).
-   */
   const handleComponentLiveTransform = useCallback((
     componentId: string,
     patch: { xPos: number; yPos: number; width?: number; height?: number }
   ) => {
-    console.log('[handleComponentLiveTransform] Local drag update:', {
-      componentId,
-      xPos: patch.xPos,
-      yPos: patch.yPos,
-    });
-    
-    // Track latest position for flush on commit
     liveTransformsRef.current.set(componentId, patch);
-    setLiveTransforms((prev) => ({ ...prev, [componentId]: patch }));
-
-    // Broadcast to remote peers via the throttled /transform endpoint
-    sendTransform({
-      componentId,
-      xPos:   patch.xPos,
-      yPos:   patch.yPos,
-      width:  patch.width,
-      height: patch.height,
-    });
-    // Also publish a throttled full-sync that merges live patches so
-    // servers that don't forward /transform live still see movement.
+    setLiveTransforms(prev => ({ ...prev, [componentId]: patch }));
+    sendTransform({ componentId, ...patch });
     publishLiveBoardSync();
   }, [sendTransform, publishLiveBoardSync]);
 
-  /**
-   * Called when the user finishes a drag, resize, or any other interaction.
-   *
-   * Flushes any in-flight transform (sends the final position immediately,
-   * bypassing the throttle), then writes the correct final positions into
-   * React state, takes a history snapshot, and broadcasts a full sync so
-   * all peers converge on the same state.
-   */
   const commitInteraction = useCallback(() => {
-    // Send the final transform immediately (bypass throttle)
     flushTransform();
     takeSnapshot();
 
     if (liveTransformsRef.current.size > 0) {
-      // Flush live-dragged positions into React state, then sync
       const patches = new Map(liveTransformsRef.current);
       liveTransformsRef.current.clear();
       setLiveTransforms({});
@@ -391,7 +352,6 @@ const BoardPage: React.FC = () => {
             return patch ? { ...c, ...patch } as UmlComponent : c;
           }),
         };
-        // Sync with the correct, up-to-date positions
         sendFullSync(next.components, arrowsRef.current);
         return next;
       });
@@ -400,12 +360,11 @@ const BoardPage: React.FC = () => {
     }
   }, [flushTransform, takeSnapshot, setState, sendFullSync, publishFullSync]);
 
-  // ── Core Handlers ─────────────────────────────────────────────────────────────
+  // ── Core handlers ──────────────────────────────────────────────────────────────
 
   const addComponent = useCallback((type: ComponentType) => {
     takeSnapshot();
     const id = `comp-${Date.now()}`;
-
     const baseProps = {
       id,
       xPos:   Math.round((-stagePos.x + stageSize.width  / 2) / stageScale - 75),
@@ -415,17 +374,12 @@ const BoardPage: React.FC = () => {
     };
 
     let newComp: UmlComponent;
-
     if (type === ComponentType.CLASS) {
-      newComp = {
-        ...baseProps,
-        type: ComponentType.CLASS,
-        data: { header: "NewClass", attributes: ["- id: int"], methods: ["+ save()"] }
-      };
+      newComp = { ...baseProps, type: ComponentType.CLASS, data: { header: 'NewClass', attributes: ['- id: int'], methods: ['+ save()'] } };
     } else if (type === ComponentType.SERVER) {
-      newComp = { ...baseProps, type: ComponentType.SERVER, data: { header: "Server" } };
+      newComp = { ...baseProps, type: ComponentType.SERVER, data: { header: 'Server' } };
     } else {
-      newComp = { ...baseProps, type: ComponentType.DATABASE, data: { header: "DB" } };
+      newComp = { ...baseProps, type: ComponentType.DATABASE, data: { header: 'DB' } };
     }
 
     applyAndSync(prev => ({ ...prev, components: [...prev.components, newComp] }));
@@ -438,7 +392,7 @@ const BoardPage: React.FC = () => {
       components: prev.components.filter(c => c.id !== selectedId),
       arrows:     prev.arrows.filter(a =>
         a.id !== selectedId && a.fromId !== selectedId && a.toId !== selectedId
-      )
+      ),
     }));
     setSelectedId(null);
   }, [selectedId, takeSnapshot, applyAndSync]);
@@ -446,13 +400,13 @@ const BoardPage: React.FC = () => {
   const handleUpdateComponent = useCallback((id: string, updates: Partial<UmlComponent>) => {
     applyAndSync(prev => ({
       ...prev,
-      components: prev.components.map((c) =>
+      components: prev.components.map(c =>
         c.id === id ? { ...c, ...updates } as UmlComponent : c
       ),
     }));
   }, [applyAndSync]);
 
-  // ── Viewport Zoom ─────────────────────────────────────────────────────────────
+  // ── Zoom ───────────────────────────────────────────────────────────────────────
 
   const handleWheel = (e: KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -472,31 +426,27 @@ const BoardPage: React.FC = () => {
     });
   };
 
-  // ── Pointer activity → cursor + live board sync ───────────────────────────────
+  // ── Pointer broadcast ──────────────────────────────────────────────────────────
+
   const broadcastPointerActivity = useCallback((e: KonvaEventObject<MouseEvent | DragEvent>) => {
     const stage = e.target.getStage();
     if (!stage) return;
-
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
-
     const now = performance.now();
     if (now - lastCursorSendRef.current < CURSOR_THROTTLE_MS) return;
     lastCursorSendRef.current = now;
-
     const worldX = (pointer.x - stage.x()) / stage.scaleX();
     const worldY = (pointer.y - stage.y()) / stage.scaleY();
     sendCursorPosition(worldX, worldY);
   }, [sendCursorPosition]);
 
   const renderedComponents = useMemo(
-    () => components.map((c) => (
-      liveTransforms[c.id] ? { ...c, ...liveTransforms[c.id] } : c
-    )),
+    () => components.map(c => liveTransforms[c.id] ? { ...c, ...liveTransforms[c.id] } : c),
     [components, liveTransforms]
   );
 
-  // ── Guards ────────────────────────────────────────────────────────────────────
+  // ── Guards (AFTER all hooks) ───────────────────────────────────────────────────
 
   if (!boardToken) {
     return (
@@ -522,10 +472,14 @@ const BoardPage: React.FC = () => {
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────────
 
-  const selectedComponent = components.find((c) => c.id === selectedId);
-  const selectedArrow     = arrows.find((a) => a.id === selectedId);
+  const selectedComponent = components.find(c => c.id === selectedId);
+  const selectedArrow     = arrows.find(a => a.id === selectedId);
+
+  const remoteCursorsFiltered = Object.fromEntries(
+    Object.entries(remoteCursors).filter(([id]) => id !== String(cursorId))
+  );
 
   return (
     <div className="flex h-screen w-screen bg-[#1a1a1a] overflow-hidden">
@@ -555,18 +509,15 @@ const BoardPage: React.FC = () => {
             handleComponentLiveTransform(id, {
               xPos:   Math.round(e.target.x()),
               yPos:   Math.round(e.target.y()),
-              // Forward size in case the node carries width/height attrs
               width:  e.target.width()  ? Math.round(e.target.width())  : undefined,
               height: e.target.height() ? Math.round(e.target.height()) : undefined,
             });
-            // Keep remote cursors moving during drag
             broadcastPointerActivity(e);
           }}
           onComponentTransformMove={(id, patch) => handleComponentLiveTransform(id, patch)}
           onCommitInteraction={commitInteraction}
           onStageMouseMove={(e) => {
             broadcastPointerActivity(e);
-
             if (!draftConnection) return;
             const stage   = e.target.getStage()!;
             const pointer = stage.getPointerPosition()!;
@@ -584,23 +535,18 @@ const BoardPage: React.FC = () => {
 
             for (const comp of components) {
               if (comp.id === draftConnection.startNodeId) continue;
-
               const ports: { port: PortPosition; px: number; py: number }[] = [
                 { port: 'top',    px: comp.xPos + comp.width / 2, py: comp.yPos },
                 { port: 'bottom', px: comp.xPos + comp.width / 2, py: comp.yPos + comp.height },
                 { port: 'left',   px: comp.xPos,                  py: comp.yPos + comp.height / 2 },
                 { port: 'right',  px: comp.xPos + comp.width,     py: comp.yPos + comp.height / 2 },
               ];
-
               for (const p of ports) {
                 const dist = Math.sqrt(
                   Math.pow(p.px - draftConnection.currentX, 2) +
                   Math.pow(p.py - draftConnection.currentY, 2)
                 );
-                if (dist < minDistance) {
-                  minDistance = dist;
-                  target = { nodeId: comp.id, port: p.port };
-                }
+                if (dist < minDistance) { minDistance = dist; target = { nodeId: comp.id, port: p.port }; }
               }
             }
 
@@ -621,7 +567,6 @@ const BoardPage: React.FC = () => {
               takeSnapshot();
               applyAndSync(prev => ({ ...prev, arrows: [...prev.arrows, newArrow] }));
             }
-
             setDraftConnection(null);
           }}
           onPortMouseDown={(nodeId, port, x, y) =>
@@ -631,10 +576,7 @@ const BoardPage: React.FC = () => {
           onPortMouseLeave={() => { hoveredPortRef.current = null; }}
           onArrowControlPointDragMove={(id, pos, e) => {
             setState(prev => {
-              const next = {
-                ...prev,
-                arrows: prev.arrows.map(a => a.id === id ? { ...a, controlPoint: pos } : a),
-              };
+              const next = { ...prev, arrows: prev.arrows.map(a => a.id === id ? { ...a, controlPoint: pos } : a) };
               arrowsRef.current = next.arrows;
               return next;
             });
@@ -663,7 +605,6 @@ const BoardPage: React.FC = () => {
           onArrowHandleDragEnd={(id, type) => {
             const arrow = arrowsRef.current.find(a => a.id === id);
             if (!arrow) { commitInteraction(); return; }
-
             const dropCoords = type === 'start' ? arrow.fromCoords : arrow.toCoords;
             if (!dropCoords) { commitInteraction(); return; }
 
@@ -673,23 +614,18 @@ const BoardPage: React.FC = () => {
 
             for (const comp of componentsRef.current) {
               if (comp.id === excludeId) continue;
-
               const ports: { port: PortPosition; px: number; py: number }[] = [
                 { port: 'top',    px: comp.xPos + comp.width / 2, py: comp.yPos },
                 { port: 'bottom', px: comp.xPos + comp.width / 2, py: comp.yPos + comp.height },
                 { port: 'left',   px: comp.xPos,                  py: comp.yPos + comp.height / 2 },
                 { port: 'right',  px: comp.xPos + comp.width,     py: comp.yPos + comp.height / 2 },
               ];
-
               for (const p of ports) {
                 const dist = Math.sqrt(
                   Math.pow(p.px - dropCoords.x, 2) +
                   Math.pow(p.py - dropCoords.y, 2)
                 );
-                if (dist < minDistance) {
-                  minDistance = dist;
-                  target = { nodeId: comp.id, port: p.port };
-                }
+                if (dist < minDistance) { minDistance = dist; target = { nodeId: comp.id, port: p.port }; }
               }
             }
 
@@ -714,7 +650,7 @@ const BoardPage: React.FC = () => {
         />
 
         <RemoteCursors
-          cursors={remoteCursors}
+          cursors={remoteCursorsFiltered}
           stageTransform={{ x: stagePos.x, y: stagePos.y, scale: stageScale }}
           canvasOffsetX={SIDEBAR_WIDTH}
           canvasOffsetY={TOPBAR_HEIGHT}

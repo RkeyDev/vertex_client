@@ -28,9 +28,15 @@ interface UseBoardSocketProps {
 }
 
 const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:9080/ws';
-// Throttle for component drag updates sent to server during dragging
-// ~30fps for smooth real-time visualization on remote clients
 const TRANSFORM_THROTTLE_MS = 33;
+
+function getAuthToken(): string {
+  try {
+    return localStorage.getItem('vertex_access_token') ?? '';
+  } catch {
+    return '';
+  }
+}
 
 export const useBoardSocket = ({
   boardToken,
@@ -69,7 +75,6 @@ export const useBoardSocket = ({
         pendingSyncPayloadRef.current = payload;
         return;
       }
-
       client.publish({
         destination: `/app/board/${boardToken}/sync`,
         body: payload,
@@ -82,60 +87,32 @@ export const useBoardSocket = ({
   const publishTransformNow = useCallback((): boolean => {
     const client = clientRef.current;
     const transform = pendingTransformRef.current;
-    if (!boardToken || !transform) {
-      return false;
-    }
-
-    // Check if client is connected (use both connected and active states)
-    if (!client || (!client.connected && !client.active)) {
-      console.log('[publishTransformNow] Not connected. Client:', !!client, 'Connected:', client?.connected, 'Active:', client?.active);
-      return false;
-    }
+    if (!boardToken || !transform) return false;
+    if (!client || (!client.connected && !client.active)) return false;
 
     try {
-      console.log('[publishTransformNow] Publishing transform:', {
-        componentId: transform.componentId,
-        xPos: transform.xPos,
-        yPos: transform.yPos,
-        destination: `/app/board/${boardToken}/transform`,
-      });
-      
       client.publish({
         destination: `/app/board/${boardToken}/transform`,
         body: JSON.stringify(transform),
       });
       lastTransformSendRef.current = performance.now();
       pendingTransformRef.current = null;
-      console.log('[publishTransformNow] Successfully published');
       return true;
     } catch (error) {
-      console.warn('[publishTransformNow] Failed to publish transform:', error);
+      console.warn('[publishTransformNow] Failed:', error);
       return false;
     }
   }, [boardToken]);
 
   const scheduleTransformFlush = useCallback(() => {
     if (transformThrottleTimerRef.current) return;
-
     const elapsed = performance.now() - lastTransformSendRef.current;
     const delay = Math.max(0, TRANSFORM_THROTTLE_MS - elapsed);
-
     transformThrottleTimerRef.current = setTimeout(() => {
       transformThrottleTimerRef.current = null;
       const published = publishTransformNow();
-      
-      // If publish failed but we still have pending data, keep retrying
       if (!published && pendingTransformRef.current) {
-        const client = clientRef.current;
-        if (client && (client.connected || client.active)) {
-          // Socket is connected but publish failed, retry
-          console.log('[scheduleTransformFlush] Publish failed, retrying...');
-          scheduleTransformFlush();
-        } else {
-          // Socket not connected, wait a bit and retry
-          console.log('[scheduleTransformFlush] Socket not ready, retrying in', TRANSFORM_THROTTLE_MS, 'ms');
-          scheduleTransformFlush();
-        }
+        scheduleTransformFlush();
       }
     }, delay);
   }, [publishTransformNow]);
@@ -143,23 +120,8 @@ export const useBoardSocket = ({
   const sendTransform = useCallback(
     (transform: Omit<BoardTransform, 'senderId'>) => {
       if (!boardToken) return;
-
-      const fullTransform = { ...transform, senderId: sessionId };
-      pendingTransformRef.current = fullTransform;
-
-      console.log('[sendTransform] Queued transform:', {
-        componentId: transform.componentId,
-        xPos: transform.xPos,
-        yPos: transform.yPos,
-        connected: clientRef.current?.connected,
-      });
-      // Always attempt to publish immediately so remote peers receive
-      // live updates during a drag. If the publish cannot proceed (e.g.
-      // socket not connected or broker busy), fall back to the existing
-      // throttled retry scheduler so the pending transform is delivered.
-      console.log('[sendTransform] Attempting immediate publish for live drag');
+      pendingTransformRef.current = { ...transform, senderId: sessionId };
       if (!publishTransformNow()) {
-        console.log('[sendTransform] Immediate publish failed, scheduling retry');
         scheduleTransformFlush();
       }
     },
@@ -177,37 +139,31 @@ export const useBoardSocket = ({
   const sendFullSync = useCallback(
     (components: UmlComponent[], arrows: UmlArrow[]) => {
       if (!boardToken) return;
-
       const payload = JSON.stringify({
         senderId: sessionId,
         boardStateJson: JSON.stringify({ components, arrows }),
       });
-
       publishSyncPayload(payload);
     },
     [boardToken, publishSyncPayload, sessionId]
   );
 
   useEffect(() => {
-    if (!boardToken) {
-      return undefined;
-    }
+    if (!boardToken) return undefined;
 
-    console.log('[useBoardSocket] Initializing with boardToken:', boardToken);
+    const token = getAuthToken();
 
     const client = new Client({
       brokerURL: DEFAULT_WS_URL,
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,
+      // ── Send JWT so Spring Security resolves the Principal correctly ──
+      connectHeaders: {
+        Authorization: `Bearer ${token}`,
+      },
 
       onConnect: () => {
-        console.log('[WebSocket] Connected! Setting up subscriptions...');
-        console.log('[WebSocket] Client state:', {
-          connected: client.connected,
-          active: client.active,
-          brokerURL: client.brokerURL,
-        });
         setIsConnected(true);
 
         syncSubscriptionRef.current?.unsubscribe();
@@ -223,9 +179,7 @@ export const useBoardSocket = ({
               let isInitialSyncResponse = false;
 
               if (dto.senderId.startsWith('SERVER_INITIAL_SYNC_')) {
-                if (dto.senderId !== `SERVER_INITIAL_SYNC_${sessionId}`) {
-                  return;
-                }
+                if (dto.senderId !== `SERVER_INITIAL_SYNC_${sessionId}`) return;
                 isInitialSyncResponse = true;
               } else if (dto.senderId === 'SERVER') {
                 if (!isReadyRef.current) {
@@ -266,18 +220,15 @@ export const useBoardSocket = ({
         transformSubscriptionRef.current = client.subscribe(
           `/topic/board/${boardToken}/transform`,
           (message) => {
-            console.log('[Transform subscription] Message received on transform topic');
             try {
-              console.log('[Transform received] Raw message body:', message.body);
-              
               const raw = JSON.parse(message.body) as any;
               const transform: BoardTransform = {
                 componentId: raw.componentId || raw.id,
-                xPos: raw.xPos ?? raw.xpos ?? raw.x,
-                yPos: raw.yPos ?? raw.ypos ?? raw.y,
-                width: raw.width,
-                height: raw.height,
-                senderId: raw.senderId,
+                xPos:        raw.xPos ?? raw.xpos ?? raw.x,
+                yPos:        raw.yPos ?? raw.ypos ?? raw.y,
+                width:       raw.width,
+                height:      raw.height,
+                senderId:    raw.senderId,
               };
 
               if (
@@ -290,21 +241,8 @@ export const useBoardSocket = ({
                 throw new Error('Received invalid transform DTO');
               }
 
-              console.log('[Transform received] Parsed transform:', {
-                componentId: transform.componentId,
-                xPos: transform.xPos,
-                yPos: transform.yPos,
-                senderId: transform.senderId,
-                currentSessionId: sessionId,
-                isOwnTransform: transform.senderId === sessionId,
-              });
+              if (transform.senderId === sessionId) return;
 
-              if (transform.senderId === sessionId) {
-                console.log('[Transform received] Ignoring own transform');
-                return;
-              }
-
-              console.log('[Transform received] Applying remote transform');
               onTransformReceivedRef.current(transform);
             } catch (error) {
               console.error('[STOMP] Failed to parse remote transform:', error);
@@ -312,8 +250,7 @@ export const useBoardSocket = ({
           }
         );
 
-        console.log('[WebSocket] Transform subscription set up for:', `/topic/board/${boardToken}/transform`);
-
+        // Request initial board state
         setTimeout(() => {
           if (client.connected) {
             client.publish({
@@ -329,7 +266,6 @@ export const useBoardSocket = ({
         if (pendingSyncPayloadRef.current) {
           publishSyncPayload(pendingSyncPayloadRef.current);
         }
-
         if (pendingTransformRef.current) {
           if (!publishTransformNow()) {
             scheduleTransformFlush();
@@ -338,8 +274,7 @@ export const useBoardSocket = ({
       },
 
       onStompError: (frame) => {
-        console.error('[STOMP] Broker reported error:', frame.headers['message']);
-        console.error('[STOMP] Additional details:', frame.body);
+        console.error('[STOMP] Broker error:', frame.headers['message'], frame.body);
       },
 
       onDisconnect: () => {
@@ -348,9 +283,9 @@ export const useBoardSocket = ({
 
       onWebSocketError: (event) => {
         if (event instanceof ErrorEvent) {
-          console.error('[WebSocket] Transport error:', event.message, event.error);
+          console.error('[WebSocket] Transport error:', event.message);
         } else if (event instanceof CloseEvent) {
-          console.warn('[WebSocket] Connection closed:', event.code, event.reason);
+          console.warn('[WebSocket] Closed:', event.code, event.reason);
         }
         setIsConnected(false);
       },

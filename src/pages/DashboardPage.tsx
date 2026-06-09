@@ -5,8 +5,6 @@ import ProjectCard from '../../src/features/projects/components/ProjectCard.tsx'
 import UserAvatar from '../components/UserAvatar.tsx';
 import type { RoomProfileItem } from '../features/board/hooks/useCursorSocket';
 
-// --- Interfaces ---
-
 interface ApiResponse<T> {
   message: string;
   data: T;
@@ -15,16 +13,13 @@ interface ApiResponse<T> {
   timestamp: string;
 }
 
-// Updated to match the backend's JoinBoardRoomResponseDTO
 interface JoinBoardRoomResponseDTO {
   boardName: string;
   boardData: string;
-  boardToken?: string; // Ensure your backend DTO actually includes this property!
-  ownerData?: UserSummary;
-  // Optional cursor-sync fields returned by backend join-room
-  id?: number;
-  userId?: number;
-  userProfiles?: Record<string, string> | RoomProfileItem[];
+  boardToken: string;
+  boardOwnerData?: UserSummary;
+  profiles?: RoomProfileItem[];
+  currentUserProfileId?: string;
 }
 
 interface OwnedBoardsResponse {
@@ -34,14 +29,13 @@ interface OwnedBoardsResponse {
 interface Board {
   id: string;
   boardName: string;
-  lastSaved: string; // ISO-8601 timestamp string: e.g., "2026-06-07T12:36:20.370372Z"
+  lastSaved: string;
 }
 
 interface NewBoardDTO {
   boardName: string;
 }
 
-// Replaced NewBoardRoomDTO with the unified JoinBoardRequestDTO
 interface JoinBoardRequestDTO {
   boardToken?: string;
   boardName?: string;
@@ -51,11 +45,9 @@ interface JoinBoardRequestDTO {
 interface UserSummary {
   firstName?: string;
   lastName?: string;
-  username: string; // Typically acts as the email in Spring Security setups
+  username: string;
   avatarUrl?: string;
 }
-
-// --- CreateBoardModal Component ---
 
 interface ModalProps {
   isOpen: boolean;
@@ -75,9 +67,7 @@ const CreateBoardModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, isS
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (boardName.trim()) {
-      onSubmit(boardName.trim());
-    }
+    if (boardName.trim()) onSubmit(boardName.trim());
   };
 
   return (
@@ -101,19 +91,10 @@ const CreateBoardModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, isS
             />
           </div>
           <div className="flex justify-end space-x-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-6 py-2 text-xl font-bold text-gray-500 hover:text-gray-800 transition-colors"
-              disabled={isSubmitting}
-            >
+            <button type="button" onClick={onClose} className="px-6 py-2 text-xl font-bold text-gray-500 hover:text-gray-800 transition-colors" disabled={isSubmitting}>
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || !boardName.trim()}
-              className="bg-[#333] text-white px-8 py-2 rounded text-xl font-bold hover:bg-black transition-all disabled:opacity-50"
-            >
+            <button type="submit" disabled={isSubmitting || !boardName.trim()} className="bg-[#333] text-white px-8 py-2 rounded text-xl font-bold hover:bg-black transition-all disabled:opacity-50">
               {isSubmitting ? 'Creating...' : 'Create'}
             </button>
           </div>
@@ -122,8 +103,6 @@ const CreateBoardModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, isS
     </div>
   );
 };
-
-// --- DashboardPage Component ---
 
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -140,34 +119,27 @@ const DashboardPage: React.FC = () => {
       try {
         setUser(JSON.parse(rawData));
       } catch (err) {
-        console.error("Failed to parse user data", err);
+        console.error('Failed to parse user data', err);
       }
     }
   }, []);
 
   const getInitials = () => {
-    if (!user) return "??";
+    if (!user) return '??';
     if (user.firstName && user.lastName) {
       return `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
     }
     return user.username.substring(0, 2).toUpperCase();
   };
 
-  /**
-   * Helper function to format ISO timestamps into an actionable, clean layout.
-   */
   const formatLastSaved = (isoString: string): string => {
     if (!isoString) return 'Never';
     try {
       const date = new Date(isoString);
       if (isNaN(date.getTime())) return 'Unknown';
-      
       return date.toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit'
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit',
       });
     } catch {
       return 'Unknown';
@@ -178,7 +150,7 @@ const DashboardPage: React.FC = () => {
     try {
       setIsLoading(true);
       const response = await api.get<ApiResponse<OwnedBoardsResponse>>('/board/boards');
-      if (response.data.responseCode === "200" && response.data.data?.boards) {
+      if (response.data.responseCode === '200' && response.data.data?.boards) {
         setProjects(response.data.data.boards);
         setError(null);
       } else {
@@ -199,10 +171,8 @@ const DashboardPage: React.FC = () => {
   const handleCreateBoard = async (name: string) => {
     try {
       setIsCreating(true);
-      const payload: NewBoardDTO = { boardName: name };
-      const response = await api.post<ApiResponse<void>>('/board/new-board', payload);
-      
-      if (response.data.responseCode === "200") {
+      const response = await api.post<ApiResponse<void>>('/board/new-board', { boardName: name });
+      if (response.data.responseCode === '200') {
         await fetchBoards();
         setIsModalOpen(false);
       } else {
@@ -215,9 +185,6 @@ const DashboardPage: React.FC = () => {
     }
   };
 
-  /**
-   * Initializes a room session using the board name and user email, then navigates.
-   */
   const handleProjectClick = async (name: string) => {
     if (!user?.username) {
       alert('User session data missing. Please log in again.');
@@ -225,51 +192,57 @@ const DashboardPage: React.FC = () => {
     }
 
     try {
-      // Updated payload to match the backend's new requirement (Name + Email)
-      const payload: JoinBoardRequestDTO = { 
+      const payload: JoinBoardRequestDTO = {
         boardName: name,
-        ownerEmail: user.username // Assuming username holds the email in this context
+        ownerEmail: user.username,
       };
-      
-      const response = await api.post<ApiResponse<JoinBoardRoomResponseDTO>>(`/board/join-room`, payload);
-      
+
+      const response = await api.post<ApiResponse<JoinBoardRoomResponseDTO>>('/board/join-room', payload);
+      console.log('RAW join-room response:', JSON.stringify(response.data, null, 2)); 
+
       const { responseCode, data } = response.data;
 
-      console.log("Room Response Data:", data);
+      console.log('Join-room response:', data);
 
-      if (responseCode === "200" && data?.boardToken) {
-        // Persist join-room cursor metadata for BoardPage RAM hydration
-        // (all optional, depends on backend payload).
-        if (data.userProfiles) {
+      if (responseCode === '200' && data?.boardToken) {
+        // currentUserProfileId is the server-assigned integer cursor id (as string)
+        const cursorId = data.currentUserProfileId != null
+          ? parseInt(data.currentUserProfileId, 10)
+          : undefined;
+
+        // Persist to sessionStorage for page-refresh hydration
+        if (data.profiles) {
           sessionStorage.setItem(
             `vertex_cursor_profiles:${data.boardToken}`,
-            JSON.stringify(data.userProfiles)
+            JSON.stringify(data.profiles)
           );
         }
-        const joinedId = data.id ?? data.userId;
-        if (typeof joinedId === 'number' && Number.isFinite(joinedId)) {
-          sessionStorage.setItem(`vertex_cursor_id:${data.boardToken}`, String(joinedId | 0));
+        if (cursorId != null && Number.isFinite(cursorId)) {
+          sessionStorage.setItem(`vertex_cursor_id:${data.boardToken}`, String(cursorId));
         }
+
         navigate(`/board?id=${data.boardToken}`, {
           state: {
-            cursorProfiles: data.userProfiles ?? {},
-            cursorId: (typeof joinedId === 'number' && Number.isFinite(joinedId)) ? (joinedId | 0) : undefined,
+            // Pass the profiles array directly — matches RoomProfileItem[]
+            cursorProfiles: data.profiles ?? [],
+            // Pass the server-assigned integer id so BoardPage doesn't generate a random one
+            cursorId: Number.isFinite(cursorId) ? cursorId : undefined,
           },
         });
       } else {
         alert(response.data.message || 'Failed to initialize session.');
       }
     } catch (err: any) {
-      console.error('Room Creation Error:', err);
+      console.error('Room join error:', err);
       alert(err.response?.data?.message || 'Failed to enter the project board.');
     }
   };
 
   return (
     <div className="flex h-screen bg-[#A5C7E9]/30">
-      <CreateBoardModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
+      <CreateBoardModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
         onSubmit={handleCreateBoard}
         isSubmitting={isCreating}
       />
@@ -281,10 +254,7 @@ const DashboardPage: React.FC = () => {
         <nav className="flex-1 mt-10">
           <ul className="space-y-2">
             <li className="bg-gray-300/50 px-8 py-4 text-4xl font-bold text-[#333] cursor-pointer">Projects</li>
-            <li
-              className="px-8 py-4 text-4xl font-bold text-[#333] hover:bg-gray-300 cursor-pointer transition-colors"
-              onClick={() => navigate('/settings')}
-            >
+            <li className="px-8 py-4 text-4xl font-bold text-[#333] hover:bg-gray-300 cursor-pointer transition-colors" onClick={() => navigate('/settings')}>
               Settings
             </li>
           </ul>
@@ -297,17 +267,13 @@ const DashboardPage: React.FC = () => {
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-[#EAEAEA] h-20 flex items-center justify-between px-12 border-b border-gray-300 shadow-sm">
           <h2 className="text-5xl font-bold text-[#333]">Dashboard</h2>
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="bg-[#EAEAEA] hover:bg-gray-300 border-2 border-gray-400 rounded px-4 py-1 transition-all"
-          >
+          <button onClick={() => setIsModalOpen(true)} className="bg-[#EAEAEA] hover:bg-gray-300 border-2 border-gray-400 rounded px-4 py-1 transition-all">
             <span className="text-2xl font-bold text-[#333]">+ New</span>
           </button>
         </header>
 
         <div className="flex-1 overflow-y-auto p-12 bg-transparent">
           {error && <div className="mb-6 p-4 bg-red-100 text-red-700 rounded font-bold">{error}</div>}
-          
           {isLoading ? (
             <div className="h-full flex items-center justify-center">
               <span className="text-2xl font-medium text-gray-500 animate-pulse">Loading...</span>
