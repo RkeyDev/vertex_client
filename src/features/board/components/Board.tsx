@@ -40,6 +40,8 @@ interface BoardProps {
   // History Actions (Command Pattern)
   onUndo: () => void;
   onRedo: () => void;
+  /** Called once when the Konva Stage mounts — used to expose boardController. */
+  onStageReady?: (stage: any) => void;
 }
 
 const Board: React.FC<BoardProps> = memo(({
@@ -47,7 +49,7 @@ const Board: React.FC<BoardProps> = memo(({
   onStageDrag, onWheel, onSelect, onComponentDragMove, onComponentTransformMove,
   onStageMouseMove, onStageMouseUp, onPointerActivity, onPortMouseDown, onPortMouseEnter, onPortMouseLeave,
   onArrowControlPointDragMove, onArrowControlPointDragEnd, onArrowHandleDragMove, onArrowHandleDragEnd,
-  onUndo, onRedo, onCommitInteraction
+  onUndo, onRedo, onCommitInteraction, onStageReady
 }) => {
   const trRef = useRef<any>(null);
   const nodesRef = useRef<Map<string, any>>(new Map());
@@ -162,6 +164,7 @@ const Board: React.FC<BoardProps> = memo(({
   return (
     <div style={gridStyle}>
       <Stage
+        ref={(node) => { if (node) onStageReady?.(node); }}
         width={stageSize.width}
         height={stageSize.height}
         draggable={!draftConnection && !isTransforming} 

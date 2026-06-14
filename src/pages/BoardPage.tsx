@@ -215,7 +215,7 @@ const BoardPage: React.FC = () => {
     boardToken,
     cursorId,
     username:  currentUser.username,
-    avatarUrl: currentUser.avatarUrl, // already stripped of base64 in useCurrentUser
+    avatarUrl: currentUser.avatarUrl,
     onCursorUpdate: setRemoteCursors,
   });
 
@@ -242,7 +242,6 @@ const BoardPage: React.FC = () => {
   }, [boardToken, cursorId, currentUser.username, currentUser.avatarUrl, locationState?.cursorProfiles, seedProfiles]);
 
   // ── Join-room on direct URL navigation ───────────────────────────────────────
-  // Must be here with all other hooks, BEFORE any conditional returns.
   useEffect(() => {
     if (!boardToken) return;
     if (locationState?.cursorId != null) return; // came from dashboard, already joined
@@ -254,7 +253,6 @@ const BoardPage: React.FC = () => {
         if (data?.profiles) {
           seedProfiles(data.profiles);
         }
-        // Persist server-assigned cursor id for this session
         if (data?.currentUserProfileId != null) {
           const serverId = parseInt(data.currentUserProfileId, 10);
           if (Number.isFinite(serverId) && serverId > 0) {
@@ -268,23 +266,17 @@ const BoardPage: React.FC = () => {
   }, [boardToken]); // intentionally omit locationState/seedProfiles to run once
 
   // ── Auto-fetch profiles for unknown cursors ──────────────────────────────────
-  // When the first client joins, it only gets its own profile. When a second
-  // client joins later, the first client starts receiving cursor packets but has
-  // no profile data for the new user (so it falls back to showing the raw ID).
-  // This effect detects that situation and re-fetches profiles from the server.
   const unknownProfileFetchedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!boardToken) return;
 
-    // Find cursors with fallback profiles that we haven't tried to fetch yet
     const unknownCursors = Object.values(remoteCursors).filter(
       c => c.profile.username === c.userId && !unknownProfileFetchedRef.current.has(c.userId)
     );
 
     if (unknownCursors.length === 0) return;
 
-    // Mark immediately so subsequent renders don't trigger duplicate fetches
     for (const c of unknownCursors) {
       unknownProfileFetchedRef.current.add(c.userId);
     }
@@ -298,7 +290,6 @@ const BoardPage: React.FC = () => {
       })
       .catch((err: any) => {
         console.error('[BoardPage] Profile re-fetch failed:', err);
-        // Allow retry on failure
         for (const c of unknownCursors) {
           unknownProfileFetchedRef.current.delete(c.userId);
         }
@@ -307,6 +298,21 @@ const BoardPage: React.FC = () => {
 
   const lastCursorSendRef    = useRef<number>(0);
   const lastLiveBoardSyncRef = useRef<number>(0);
+
+  // ── boardController — exposed for the Playwright screenshot worker ────────────
+  // IMPORTANT: must update React state (setStagePos/setStageScale), not the Konva
+  // node directly. Mutating the node directly gets overwritten on the next React
+  // render because stagePos/stageScale props are controlled by state.
+  const handleStageReady = useCallback((_stage: any) => {
+  console.log('[vertex] handleStageReady v2 — using setState');
+  window.boardController = {
+    setCamera: ({ x, y, zoom }: { x: number; y: number; zoom: number }) => {
+      console.log('[vertex] setCamera via setState', x, y, zoom);
+      setStagePos({ x, y });
+      setStageScale(zoom);
+    },
+  };
+}, [setStagePos, setStageScale]);
 
   // ── Board socket ──────────────────────────────────────────────────────────────
   const handleRemoteBoardState = useCallback((remoteState: {
@@ -536,6 +542,7 @@ const BoardPage: React.FC = () => {
           stageSize={stageSize}
           stagePos={stagePos}
           stageScale={stageScale}
+          onStageReady={handleStageReady}
           onStageDrag={(e) => {
             if (e.target === e.target.getStage()) {
               setStagePos({ x: e.target.x(), y: e.target.y() });
