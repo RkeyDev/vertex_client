@@ -32,9 +32,6 @@ interface Board {
   lastSaved: string;
 }
 
-interface NewBoardDTO {
-  boardName: string;
-}
 
 interface JoinBoardRequestDTO {
   boardToken?: string;
