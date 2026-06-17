@@ -10,6 +10,8 @@ import RemoteCursors from '../features/board/components/RemoteCursors';
 
 import { useBoardSocket, type BoardTransform } from '../features/board/hooks/useBoardSocket';
 import { useCursorSocket, type RemoteCursor, type RoomProfileItem, type UserProfile } from '../features/board/hooks/useCursorSocket';
+import { useDownloadSocket } from '../features/board/hooks/useDownloadSocket';
+import { triggerFileDownload } from '../features/board/utils/triggerFileDownload';
 import api from '../api/axiosInstance';
 
 import {
@@ -22,7 +24,7 @@ import {
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
-function useCurrentUser(): { userId: string; username: string; avatarUrl: string | undefined } {
+function useCurrentUser(): { userId: string; username: string; avatarUrl: string | undefined; email: string | null } {
   const rawData = localStorage.getItem('vertex_user');
   const user = rawData
     ? (() => { try { return JSON.parse(rawData); } catch { return null; } })()
@@ -42,6 +44,7 @@ function useCurrentUser(): { userId: string; username: string; avatarUrl: string
     userId:    user?.username ?? 'anon-' + Math.random().toString(36).slice(2),
     username:  fullName || user?.username || 'Anonymous',
     avatarUrl: safeAvatarUrl,
+    email:     (user?.email as string) ?? null,
   };
 }
 
@@ -57,7 +60,7 @@ function getOrCreateCursorId(boardToken: string | null): number {
 
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
-  const generated = (buf[0] % 1_000_000) || 1; // keep it a small positive int
+  const generated = (buf[0] % 1_000_000) || 1;
   try { sessionStorage.setItem(key, String(generated)); } catch { /* ignore */ }
   return generated;
 }
@@ -152,6 +155,14 @@ const TOPBAR_HEIGHT      = 48;
 const CURSOR_THROTTLE_MS = 33;
 const LIVE_BOARD_SYNC_MS = 50;
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface PendingDownload {
+  requestId: string;
+  boardId:   string;
+  fileType:  string;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const BoardPage: React.FC = () => {
@@ -210,10 +221,13 @@ const BoardPage: React.FC = () => {
     xPos: number; yPos: number; width?: number; height?: number;
   }>>({});
 
-  const [boardName, setBoardName] = useState<string>('Untitled');
+  const [boardName,         setBoardName]         = useState<string>('Untitled');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [exportSuccess, setExportSuccess] = useState<boolean>(false);
+  const [exportError,       setExportError]       = useState<string | null>(null);
+  const [exportSuccess,     setExportSuccess]     = useState<boolean>(false);
+
+  // ── Download state ────────────────────────────────────────────────────────────
+  const [pendingDownloads, setPendingDownloads] = useState<PendingDownload[]>([]);
 
   const handleExport = async (fileType: 'JPEG' | 'PDF' | 'VERTEX') => {
     setExportError(null);
@@ -234,18 +248,13 @@ const BoardPage: React.FC = () => {
     }
 
     const payload = {
-      board_id: boardToken,
-      sender_jwt: token,
-      sender_email: email,
-      file_type: fileType,
-      board_metadata: {
-        boardName: boardName,
-      },
-      canvas_data: {
-        components: components,
-        arrows: arrows,
-      },
-      request_time_stamp: new Date().toISOString()
+      board_id:           boardToken,
+      sender_jwt:         token,
+      sender_email:       email,
+      file_type:          fileType,
+      board_metadata:     { boardName },
+      canvas_data:        { components, arrows },
+      request_time_stamp: new Date().toISOString(),
     };
 
     try {
@@ -265,7 +274,7 @@ const BoardPage: React.FC = () => {
     }
   };
 
-  // ── Cursor socket ─────────────────────────────────────────────────────────────
+  // ── Cursor socket ──────────────────────────────────────────────────────────────
   const { sendCursorPosition, seedProfiles } = useCursorSocket({
     boardToken,
     cursorId,
@@ -357,19 +366,16 @@ const BoardPage: React.FC = () => {
   const lastLiveBoardSyncRef = useRef<number>(0);
 
   // ── boardController — exposed for the Playwright screenshot worker ────────────
-  // IMPORTANT: must update React state (setStagePos/setStageScale), not the Konva
-  // node directly. Mutating the node directly gets overwritten on the next React
-  // render because stagePos/stageScale props are controlled by state.
   const handleStageReady = useCallback((_stage: any) => {
-  console.log('[vertex] handleStageReady v2 — using setState');
-  window.boardController = {
-    setCamera: ({ x, y, zoom }: { x: number; y: number; zoom: number }) => {
-      console.log('[vertex] setCamera via setState', x, y, zoom);
-      setStagePos({ x, y });
-      setStageScale(zoom);
-    },
-  };
-}, [setStagePos, setStageScale]);
+    console.log('[vertex] handleStageReady v2 — using setState');
+    window.boardController = {
+      setCamera: ({ x, y, zoom }: { x: number; y: number; zoom: number }) => {
+        console.log('[vertex] setCamera via setState', x, y, zoom);
+        setStagePos({ x, y });
+        setStageScale(zoom);
+      },
+    };
+  }, [setStagePos, setStageScale]);
 
   // ── Board socket ──────────────────────────────────────────────────────────────
   const handleRemoteBoardState = useCallback((remoteState: {
@@ -393,10 +399,33 @@ const BoardPage: React.FC = () => {
     }));
   }, []);
 
-  const { sendTransform, flushTransform, sendFullSync, isReady } = useBoardSocket({
+  const { sendTransform, flushTransform, sendFullSync, isReady, client } = useBoardSocket({
     boardToken,
     onStateReceived:     handleRemoteBoardState,
     onTransformReceived: handleRemoteTransform,
+  });
+
+  // ── Download socket ───────────────────────────────────────────────────────────
+  useDownloadSocket({
+    client:        client.current,
+    userEmail:     currentUser.email,
+    onDownloadReady: async (notification) => {
+      setPendingDownloads(prev => [...prev, {
+        requestId: notification.requestId,
+        boardId:   notification.boardId,
+        fileType:  notification.fileType,
+      }]);
+
+      try {
+        await triggerFileDownload(notification.downloadUrl);
+      } catch (err) {
+        console.error('[BoardPage] Auto-download failed:', err);
+      } finally {
+        setPendingDownloads(prev =>
+          prev.filter(d => d.requestId !== notification.requestId)
+        );
+      }
+    },
   });
 
   const publishFullSync = useCallback(() => {
@@ -595,6 +624,26 @@ const BoardPage: React.FC = () => {
           onExportClick={() => setIsExportModalOpen(true)}
         />
 
+        {/* ── Download-ready toasts ─────────────────────────────────────────── */}
+        {pendingDownloads.length > 0 && (
+          <div className="absolute top-14 right-4 z-40 flex flex-col gap-2">
+            {pendingDownloads.map(d => (
+              <div
+                key={d.requestId}
+                className="flex items-center gap-3 bg-[#1e1e1e] border border-blue-500/40
+                           text-gray-200 text-sm px-4 py-3 rounded-xl shadow-lg"
+              >
+                <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <span>
+                  Downloading{' '}
+                  <span className="font-semibold text-blue-400">{d.fileType}</span>{' '}
+                  export…
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         <Board
           components={renderedComponents}
           arrows={arrows}
@@ -786,6 +835,8 @@ const BoardPage: React.FC = () => {
             </button>
           </div>
         )}
+
+        {/* ── Export modal ──────────────────────────────────────────────────── */}
         {isExportModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md transition-all duration-300 animate-fade-in">
             <div className="bg-[#EAEAEA] rounded-2xl shadow-2xl p-8 flex flex-col space-y-6 w-[450px] border border-gray-300 animate-scale-in">
@@ -805,8 +856,8 @@ const BoardPage: React.FC = () => {
 
               <div className="flex flex-col space-y-4">
                 {[
-                  { type: 'JPEG', label: 'Image', desc: 'Download standard JPEG image file' },
-                  { type: 'PDF', label: 'PDF Document', desc: 'Save board as a printable PDF document' },
+                  { type: 'JPEG',   label: 'Image',        desc: 'Download standard JPEG image file' },
+                  { type: 'PDF',    label: 'PDF Document', desc: 'Save board as a printable PDF document' },
                   { type: 'VERTEX', label: '.Vertex File', desc: 'Custom file type to import back later' },
                 ].map((opt) => (
                   <button
@@ -837,7 +888,7 @@ const BoardPage: React.FC = () => {
 
               {exportSuccess && (
                 <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg text-sm font-semibold text-center animate-pulse">
-                  Export request sent successfully!
+                  Export queued! Your download will start automatically.
                 </div>
               )}
 

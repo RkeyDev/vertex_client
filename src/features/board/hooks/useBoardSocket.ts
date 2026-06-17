@@ -318,5 +318,6 @@ export const useBoardSocket = ({
     sendTransform,
     flushTransform,
     sendFullSync,
+    client: clientRef, 
   };
 };
