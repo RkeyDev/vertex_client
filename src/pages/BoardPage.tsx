@@ -158,9 +158,14 @@ const LIVE_BOARD_SYNC_MS = 50;
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PendingDownload {
-  requestId: string;
-  boardId:   string;
-  fileType:  string;
+  // clientKey is generated at click-time so the toast appears immediately,
+  // before the backend even acknowledges the request.
+  // requestId is null until the STOMP notification arrives and is then used
+  // to clear the toast after the download completes.
+  clientKey:  string;
+  requestId:  string | null;
+  boardId:    string;
+  fileType:   string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -231,8 +236,19 @@ const BoardPage: React.FC = () => {
 
   const handleExport = async (fileType: 'JPEG' | 'PDF' | 'VERTEX') => {
     setExportError(null);
-    setExportSuccess(false);
-    
+
+    // ── Show the loading toast immediately on click ───────────────────────────
+    // We don't wait for the backend — the toast appears the instant the user
+    // picks a format so there's no perceived lag.
+    const clientKey = `${boardToken}:${fileType}:${Date.now()}`;
+    setPendingDownloads(prev => [...prev, {
+      clientKey,
+      requestId: null,   // filled in when the STOMP notification arrives
+      boardId:   boardToken ?? '',
+      fileType,
+    }]);
+    setIsExportModalOpen(false);
+
     const token = localStorage.getItem('sender_jwt') || localStorage.getItem('vertex_access_token') || '';
     let email = localStorage.getItem('sender_email') || '';
     if (!email) {
@@ -259,18 +275,17 @@ const BoardPage: React.FC = () => {
 
     try {
       const response = await api.post('/board/export-board', payload);
-      if (response.status === 200 || response.data?.responseCode === '200') {
-        setExportSuccess(true);
-        setTimeout(() => {
-          setIsExportModalOpen(false);
-          setExportSuccess(false);
-        }, 1500);
-      } else {
+      if (response.status !== 200 && response.data?.responseCode !== '200') {
+        // Queue failed — remove the toast and show the error in-place
+        setPendingDownloads(prev => prev.filter(d => d.clientKey !== clientKey));
         setExportError(response.data?.message || 'Failed to export board.');
+        setIsExportModalOpen(true);
       }
     } catch (err: any) {
       console.error('Export failed:', err);
+      setPendingDownloads(prev => prev.filter(d => d.clientKey !== clientKey));
       setExportError(err.message || 'An error occurred while exporting.');
+      setIsExportModalOpen(true);
     }
   };
 
@@ -410,20 +425,37 @@ const BoardPage: React.FC = () => {
     client:        client.current,
     userEmail:     currentUser.email,
     onDownloadReady: async (notification) => {
-      setPendingDownloads(prev => [...prev, {
-        requestId: notification.requestId,
-        boardId:   notification.boardId,
-        fileType:  notification.fileType,
-      }]);
+      // Grab the clientKey of the matching pending toast up-front, before any
+      // async work. clientKey is stable from click-time so there is no stale-
+      // closure / batching race the way there would be with requestId (which
+      // starts as null and gets set in a separate state update).
+      let matchedClientKey: string | null = null;
+      setPendingDownloads(prev => {
+        const match = prev.find(
+          d => d.requestId === null
+            && d.boardId  === notification.boardId
+            && d.fileType.toLowerCase() === notification.fileType.toLowerCase()
+        );
+        matchedClientKey = match?.clientKey ?? null;
+        // Stamp the requestId on while we're here — useful for debugging
+        return match
+          ? prev.map(d => d.clientKey === match.clientKey
+              ? { ...d, requestId: notification.requestId }
+              : d)
+          : prev;
+      });
 
       try {
         await triggerFileDownload(notification.downloadUrl);
       } catch (err) {
         console.error('[BoardPage] Auto-download failed:', err);
       } finally {
-        setPendingDownloads(prev =>
-          prev.filter(d => d.requestId !== notification.requestId)
-        );
+        // Clear by clientKey — always set, never null, no batching race
+        if (matchedClientKey) {
+          setPendingDownloads(prev =>
+            prev.filter(d => d.clientKey !== matchedClientKey)
+          );
+        }
       }
     },
   });
@@ -629,16 +661,23 @@ const BoardPage: React.FC = () => {
           <div className="absolute top-14 right-4 z-40 flex flex-col gap-2">
             {pendingDownloads.map(d => (
               <div
-                key={d.requestId}
+                key={d.clientKey}
                 className="flex items-center gap-3 bg-[#1e1e1e] border border-blue-500/40
                            text-gray-200 text-sm px-4 py-3 rounded-xl shadow-lg"
               >
                 <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
                 <span>
-                  Downloading{' '}
+                  {d.requestId === null ? 'Preparing' : 'Downloading'}{' '}
                   <span className="font-semibold text-blue-400">{d.fileType}</span>{' '}
                   export…
                 </span>
+                <button
+                  onClick={() => setPendingDownloads(prev => prev.filter(p => p.clientKey !== d.clientKey))}
+                  className="ml-2 text-gray-500 hover:text-gray-200 transition-colors text-base leading-none flex-shrink-0"
+                  aria-label="Dismiss"
+                >
+                  &times;
+                </button>
               </div>
             ))}
           </div>
