@@ -524,7 +524,7 @@ const BoardPage: React.FC = () => {
 
   // ── Core handlers ──────────────────────────────────────────────────────────────
 
-  const addComponent = useCallback((type: ComponentType) => {
+  const addComponent = useCallback((type: string) => {
     takeSnapshot();
     const id = `comp-${Date.now()}`;
     const baseProps = {
@@ -536,12 +536,20 @@ const BoardPage: React.FC = () => {
     };
 
     let newComp: UmlComponent;
-    if (type === ComponentType.CLASS) {
+    if (type === 'CLASS') {
       newComp = { ...baseProps, type: ComponentType.CLASS, data: { header: 'NewClass', attributes: ['- id: int'], methods: ['+ save()'] } };
-    } else if (type === ComponentType.SERVER) {
+    } else if (type === 'SERVER') {
       newComp = { ...baseProps, type: ComponentType.SERVER, data: { header: 'Server' } };
-    } else {
+    } else if (type === 'DATABASE') {
       newComp = { ...baseProps, type: ComponentType.DATABASE, data: { header: 'DB' } };
+    } else if (type === 'INTERFACE') {
+      newComp = { ...baseProps, type: ComponentType.CLASS, data: { header: 'Interface', shapeType: 'INTERFACE' }, width: 120, height: 120 };
+    } else if (type === 'ACTOR') {
+      newComp = { ...baseProps, type: ComponentType.CLASS, data: { header: 'Actor', shapeType: 'ACTOR' }, width: 80, height: 120 };
+    } else if (type === 'USE_CASE') {
+      newComp = { ...baseProps, type: ComponentType.CLASS, data: { header: 'UseCase', shapeType: 'USE_CASE' }, width: 150, height: 80 };
+    } else {
+      newComp = { ...baseProps, type: ComponentType.CLASS, data: { header: 'NewClass' } };
     }
 
     applyAndSync(prev => ({ ...prev, components: [...prev.components, newComp] }));

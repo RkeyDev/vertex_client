@@ -1,18 +1,8 @@
 import React from 'react';
-import { 
-  type UmlComponent, 
-} from '../types/board.types';
-import { Rect, Group, Text, Line, Path } from 'react-konva';
+import { Rect, Group, Text, Line } from 'react-konva';
+import type { ShapeProps } from './ShapeProps';
+import { type UmlComponent } from '../../types/board.types';
 
-interface ShapeProps {
-  component: UmlComponent;
-  isSelected: boolean;
-}
-
-/**
- * Helper to calculate the scaled font size based on the component's 
- * current width vs a reference width, plus any manual overrides.
- */
 const getScaledFontSize = (component: UmlComponent, baseSize: number) => {
   const manualFontSize = (component.data as any)?.fontSize || baseSize;
   const REFERENCE_WIDTH = 150;
@@ -23,11 +13,10 @@ const getScaledFontSize = (component: UmlComponent, baseSize: number) => {
 export const ClassShape: React.FC<ShapeProps> = ({ component, isSelected }) => {
   const { width, height, data } = component;
   
-  // Dynamic font sizes based on the scaling logic
   const headerFontSize = getScaledFontSize(component, 14);
   const bodyFontSize = getScaledFontSize(component, 12);
 
-  const headerHeight = 35 * (width / 150); // Scale header height too so it looks proportional
+  const headerHeight = 35 * (width / 150);
   const bodyHeight = height - headerHeight;
   const attributeSectionHeight = bodyHeight / 2;
   const secondLineY = headerHeight + attributeSectionHeight;
@@ -64,7 +53,7 @@ export const ClassShape: React.FC<ShapeProps> = ({ component, isSelected }) => {
         align="center"
         verticalAlign="middle"
         fontStyle="bold"
-        fontSize={headerFontSize} // UPDATED
+        fontSize={headerFontSize}
       />
 
       <Text
@@ -72,7 +61,7 @@ export const ClassShape: React.FC<ShapeProps> = ({ component, isSelected }) => {
         x={5}
         y={headerHeight + 5}
         width={width - 10}
-        fontSize={bodyFontSize} // UPDATED
+        fontSize={bodyFontSize}
         fontFamily="monospace"
       />
 
@@ -81,37 +70,9 @@ export const ClassShape: React.FC<ShapeProps> = ({ component, isSelected }) => {
         x={5}
         y={secondLineY + 5}
         width={width - 10}
-        fontSize={bodyFontSize} // UPDATED
+        fontSize={bodyFontSize}
         fontFamily="monospace"
       />
     </Group>
-  );
-};
-
-export const ServerShape: React.FC<ShapeProps> = ({ component, isSelected }) => (
-  <Rect
-    width={component.width}
-    height={component.height}
-    fill="#f1f5f9"
-    stroke={isSelected ? "#3b82f6" : "#475569"}
-    strokeWidth={isSelected ? 3 : 2}
-    cornerRadius={12}
-  />
-);
-
-export const DatabaseShape: React.FC<ShapeProps> = ({ component, isSelected }) => {
-  const { width, height } = component;
-  const rx = width / 2;
-  const ry = 10;
-  // Note: For a database shape, you might want to scale 'ry' as well if the width gets huge
-  const pathData = `M 0,${ry} a ${rx},${ry} 0 1,1 ${width},0 a ${rx},${ry} 0 1,1 -${width},0 l 0,${height - ry * 2} a ${rx},${ry} 0 0,0 ${width},0 l 0,-${height - ry * 2}`;
-
-  return (
-    <Path 
-      data={pathData} 
-      fill="white" 
-      stroke={isSelected ? "#3b82f6" : "#1e293b"} 
-      strokeWidth={isSelected ? 3 : 2} 
-    />
   );
 };

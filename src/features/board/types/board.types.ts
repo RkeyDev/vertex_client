@@ -22,6 +22,7 @@ export interface UmlClassComponent extends BaseComponent {
     header?: string;
     attributes?: string[];
     methods?: string[];
+    shapeType?: 'CLASS' | 'INTERFACE' | 'ACTOR' | 'USE_CASE';
   };
 }
 

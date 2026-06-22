@@ -1,7 +1,7 @@
 import React, { memo, useRef, useImperativeHandle, forwardRef, useMemo, useEffect } from 'react';
 import { Group, Circle, Text } from 'react-konva';
 import { type UmlComponent, type PortPosition, ComponentType } from '../types/board.types';
-import { ClassShape, ServerShape, DatabaseShape } from './NodeShapes';
+import { ClassShape, ServerShape, DatabaseShape, InterfaceShape, ActorShape, UseCaseShape } from './shapes';
 
 interface CanvasNodeProps {
   component: UmlComponent;
@@ -65,9 +65,13 @@ const CanvasNode = memo(forwardRef<any, CanvasNodeProps>(({
 
   const renderShape = () => {
     const props = { component, isSelected };
-    switch (component.type) {
+    const shapeType = component.data?.shapeType || component.type;
+    switch (shapeType) {
       case ComponentType.SERVER: return <ServerShape {...props} />;
       case ComponentType.DATABASE: return <DatabaseShape {...props} />;
+      case 'INTERFACE': return <InterfaceShape {...props} />;
+      case 'ACTOR': return <ActorShape {...props} />;
+      case 'USE_CASE': return <UseCaseShape {...props} />;
       default: return <ClassShape {...props} />;
     }
   };
