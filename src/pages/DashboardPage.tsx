@@ -32,7 +32,6 @@ interface Board {
   lastSaved: string;
 }
 
-
 interface JoinBoardRequestDTO {
   boardToken?: string;
   boardName?: string;
@@ -45,6 +44,8 @@ interface UserSummary {
   username: string;
   avatarUrl?: string;
 }
+
+// --- Create Board Modal ---
 
 interface ModalProps {
   isOpen: boolean;
@@ -62,24 +63,21 @@ const CreateBoardModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, isS
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (boardName.trim()) onSubmit(boardName.trim());
+    if (boardName.trim()) await onSubmit(boardName.trim());
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-[#EAEAEA] w-full max-w-md p-8 rounded-lg shadow-2xl border border-gray-300">
-        <h3 className="text-3xl font-black text-[#333] mb-6">New Project</h3>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="boardName" className="block text-sm font-bold uppercase tracking-wider text-gray-600 mb-2">
-              Project Name
-            </label>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-lg">
+        <h2 className="text-4xl font-black text-[#333] mb-8">New Project</h2>
+        <form onSubmit={handleSubmit}>
+          <div className="mb-8">
+            <label className="block text-xl font-bold text-gray-700 mb-3">Project Name</label>
             <input
-              id="boardName"
-              autoFocus
               type="text"
+              autoFocus
               value={boardName}
               onChange={(e) => setBoardName(e.target.value)}
               placeholder="e.g. System Architecture Design"
@@ -101,6 +99,94 @@ const CreateBoardModal: React.FC<ModalProps> = ({ isOpen, onClose, onSubmit, isS
   );
 };
 
+// --- Delete Board Modal ---
+
+interface DeleteModalProps {
+  isOpen: boolean;
+  boardName: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+  isDeleting: boolean;
+}
+
+const DeleteBoardModal: React.FC<DeleteModalProps> = ({
+  isOpen,
+  boardName,
+  onClose,
+  onConfirm,
+  isDeleting,
+}) => {
+  const [confirmText, setConfirmText] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) setConfirmText('');
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const isMatch = confirmText === boardName;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isMatch) await onConfirm();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-lg">
+        <div className="flex items-center space-x-3 mb-6">
+          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-red-600">
+              <path fillRule="evenodd" d="M16.5 4.478v.227a48.816 48.816 0 013.878.512.75.75 0 11-.256 1.478l-.209-.035-1.005 13.07a3 3 0 01-2.991 2.77H8.084a3 3 0 01-2.991-2.77L4.087 6.66l-.209.035a.75.75 0 01-.256-1.478A48.567 48.567 0 017.5 4.705v-.227c0-1.564 1.213-2.9 2.816-2.951a52.662 52.662 0 013.369 0c1.603.051 2.815 1.387 2.815 2.951zm-6.136-1.452a51.196 51.196 0 013.273 0C14.39 3.05 15 3.684 15 4.478v.113a49.488 49.488 0 00-6 0v-.113c0-.794.609-1.428 1.364-1.452zm-.355 5.945a.75.75 0 10-1.5.058l.347 9a.75.75 0 101.499-.058l-.346-9zm5.48.058a.75.75 0 10-1.498-.058l-.347 9a.75.75 0 001.5.058l.345-9z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <h2 className="text-3xl font-black text-[#333]">Delete Board</h2>
+        </div>
+
+        <p className="text-gray-600 text-lg mb-2">
+          This action <span className="font-bold text-red-600">cannot be undone</span>. The board and all its data will be permanently deleted.
+        </p>
+        <p className="text-gray-700 text-lg mb-6">
+          To confirm, type <span className="font-mono font-bold text-[#333] bg-gray-100 px-1 rounded">{boardName}</span> below:
+        </p>
+
+        <form onSubmit={handleSubmit}>
+          <input
+            id="delete-confirm-input"
+            type="text"
+            autoFocus
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder="Type board name to confirm"
+            className="w-full bg-white border-2 border-gray-300 rounded px-4 py-3 text-xl focus:outline-none focus:border-red-400 transition-colors mb-6"
+            disabled={isDeleting}
+          />
+          <div className="flex justify-end space-x-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-6 py-2 text-xl font-bold text-gray-500 hover:text-gray-800 transition-colors"
+              disabled={isDeleting}
+            >
+              Cancel
+            </button>
+            <button
+              id="confirm-delete-board-btn"
+              type="submit"
+              disabled={isDeleting || !isMatch}
+              className="bg-red-500 hover:bg-red-600 text-white px-8 py-2 rounded text-xl font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete Board'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// --- Dashboard Page ---
+
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Board[]>([]);
@@ -109,6 +195,10 @@ const DashboardPage: React.FC = () => {
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<UserSummary | null>(null);
+
+  // Delete modal state
+  const [deleteTarget, setDeleteTarget] = useState<Board | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   useEffect(() => {
     const rawData = localStorage.getItem('vertex_user');
@@ -182,6 +272,24 @@ const DashboardPage: React.FC = () => {
     }
   };
 
+  const handleDeleteBoard = async () => {
+    if (!deleteTarget) return;
+    try {
+      setIsDeleting(true);
+      const response = await api.delete<ApiResponse<void>>(`/board/delete/${deleteTarget.id}`);
+      if (response.data.responseCode === '200') {
+        setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+        setDeleteTarget(null);
+      } else {
+        alert(`Error: ${response.data.message}`);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete board.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleProjectClick = async (name: string) => {
     if (!user?.username) {
       alert('User session data missing. Please log in again.');
@@ -195,7 +303,7 @@ const DashboardPage: React.FC = () => {
       };
 
       const response = await api.post<ApiResponse<JoinBoardRoomResponseDTO>>('/board/join-room', payload);
-      console.log('RAW join-room response:', JSON.stringify(response.data, null, 2)); 
+      console.log('RAW join-room response:', JSON.stringify(response.data, null, 2));
 
       const { responseCode, data } = response.data;
 
@@ -220,7 +328,7 @@ const DashboardPage: React.FC = () => {
 
         navigate(`/board?id=${data.boardToken}`, {
           state: {
-            // Pass the profiles array directly — matches RoomProfileItem[]
+            // Pass the profiles array directly - matches RoomProfileItem[]
             cursorProfiles: data.profiles ?? [],
             // Pass the server-assigned integer id so BoardPage doesn't generate a random one
             cursorId: Number.isFinite(cursorId) ? cursorId : undefined,
@@ -242,6 +350,14 @@ const DashboardPage: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleCreateBoard}
         isSubmitting={isCreating}
+      />
+
+      <DeleteBoardModal
+        isOpen={deleteTarget !== null}
+        boardName={deleteTarget?.boardName ?? ''}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteBoard}
+        isDeleting={isDeleting}
       />
 
       <aside className="w-64 bg-[#EAEAEA] flex flex-col border-r border-gray-300">
@@ -288,7 +404,9 @@ const DashboardPage: React.FC = () => {
                   lastSaved={formatLastSaved(project.lastSaved)}
                   avatarUrl={user?.avatarUrl}
                   initials={getInitials()}
+                  isOwner={true}
                   onClick={() => handleProjectClick(project.boardName)}
+                  onDeleteClick={() => setDeleteTarget(project)}
                 />
               ))}
             </div>
