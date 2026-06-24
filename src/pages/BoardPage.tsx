@@ -32,6 +32,11 @@ import ExportModal from '../features/board/components/ExportModal';
 import DownloadToasts from '../features/board/components/DownloadToasts';
 import LoadingScreen from '../features/board/components/LoadingScreen';
 
+type ExportFileType = 'JPEG_ZIP' | 'PDF' | 'VERTEX';
+type InternalExportFileType = ExportFileType | 'JPEG_THUMBNAIL';
+
+const THUMBNAIL_EXPORT_IDLE_MS = 20_000;
+
 const BoardPage: React.FC = () => {
   const location      = useLocation();
   const locationState = (location.state as BoardLocationState | null) ?? null;
@@ -92,22 +97,13 @@ const BoardPage: React.FC = () => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportError,       setExportError]       = useState<string | null>(null);
   const [exportSuccess,     setExportSuccess]     = useState<boolean>(false);
+  const thumbnailExportTimerRef = useRef<number | null>(null);
+  const thumbnailExportPendingRef = useRef(false);
 
   // ── Download state ────────────────────────────────────────────────────────────
   const [pendingDownloads, setPendingDownloads] = useState<PendingDownload[]>([]);
 
-  const handleExport = async (fileType: 'JPEG' | 'PDF' | 'VERTEX') => {
-    setExportError(null);
-
-    const clientKey = `${boardToken}:${fileType}:${Date.now()}`;
-    setPendingDownloads(prev => [...prev, {
-      clientKey,
-      requestId: null,
-      boardId:   boardToken ?? '',
-      fileType,
-    }]);
-    setIsExportModalOpen(false);
-
+  const buildExportPayload = useCallback((fileType: InternalExportFileType) => {
     const token = localStorage.getItem('sender_jwt') || localStorage.getItem('vertex_access_token') || '';
     let email = localStorage.getItem('sender_email') || '';
     if (!email) {
@@ -122,22 +118,74 @@ const BoardPage: React.FC = () => {
       }
     }
 
-    const payload = {
+    return {
       board_id:           boardToken,
       sender_jwt:         token,
       sender_email:       email,
       file_type:          fileType,
       board_metadata:     { boardName },
-      canvas_data:        { components, arrows },
+      canvas_data:        { components: componentsRef.current, arrows: arrowsRef.current },
       request_time_stamp: new Date().toISOString(),
     };
+  }, [boardToken, boardName]);
+
+  const queueThumbnailExport = useCallback(async () => {
+    if (!boardToken) return;
+    try {
+      await api.post('/board/export-board', buildExportPayload('JPEG_THUMBNAIL'));
+    } catch (err) {
+      console.error('[BoardPage] Thumbnail export failed:', err);
+    }
+  }, [boardToken, buildExportPayload]);
+
+  const scheduleThumbnailExport = useCallback(() => {
+    if (!boardToken) return;
+    thumbnailExportPendingRef.current = true;
+    if (thumbnailExportTimerRef.current !== null) {
+      window.clearTimeout(thumbnailExportTimerRef.current);
+    }
+    thumbnailExportTimerRef.current = window.setTimeout(() => {
+      thumbnailExportTimerRef.current = null;
+      thumbnailExportPendingRef.current = false;
+      queueThumbnailExport();
+    }, THUMBNAIL_EXPORT_IDLE_MS);
+  }, [boardToken, queueThumbnailExport]);
+
+  useEffect(() => {
+    if (thumbnailExportPendingRef.current) {
+      scheduleThumbnailExport();
+    }
+  }, [components, arrows, scheduleThumbnailExport]);
+
+  useEffect(() => {
+    return () => {
+      if (thumbnailExportTimerRef.current !== null) {
+        window.clearTimeout(thumbnailExportTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleExport = async (fileType: ExportFileType) => {
+    setExportError(null);
+    setExportSuccess(false);
+
+    const clientKey = `${boardToken}:${fileType}:${Date.now()}`;
+    setPendingDownloads(prev => [...prev, {
+      clientKey,
+      requestId: null,
+      boardId:   boardToken ?? '',
+      fileType,
+    }]);
+    setIsExportModalOpen(false);
 
     try {
-      const response = await api.post('/board/export-board', payload);
+      const response = await api.post('/board/export-board', buildExportPayload(fileType));
       if (response.status !== 200 && response.data?.responseCode !== '200') {
         setPendingDownloads(prev => prev.filter(d => d.clientKey !== clientKey));
         setExportError(response.data?.message || 'Failed to export board.');
         setIsExportModalOpen(true);
+      } else {
+        setExportSuccess(true);
       }
     } catch (err: any) {
       console.error('Export failed:', err);
@@ -147,7 +195,6 @@ const BoardPage: React.FC = () => {
     }
   };
 
-  // ── Cursor socket ──────────────────────────────────────────────────────────────
   const { sendCursorPosition, seedProfiles } = useCursorSocket({
     boardToken,
     cursorId,
@@ -340,7 +387,8 @@ const BoardPage: React.FC = () => {
     setLiveTransforms(prev => ({ ...prev, [componentId]: patch }));
     sendTransform({ componentId, ...patch });
     publishLiveBoardSync();
-  }, [sendTransform, publishLiveBoardSync]);
+    scheduleThumbnailExport();
+  }, [sendTransform, publishLiveBoardSync, scheduleThumbnailExport]);
 
   const commitInteraction = useCallback(() => {
     flushTransform();
@@ -398,7 +446,8 @@ const BoardPage: React.FC = () => {
     }
 
     applyAndSync(prev => ({ ...prev, components: [...prev.components, newComp] }));
-  }, [stagePos, stageScale, stageSize, takeSnapshot, applyAndSync]);
+    scheduleThumbnailExport();
+  }, [stagePos, stageScale, stageSize, takeSnapshot, applyAndSync, scheduleThumbnailExport]);
 
   const handleDeleteSelected = useCallback(() => {
     if (!selectedId) return;

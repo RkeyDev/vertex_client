@@ -1,5 +1,4 @@
 import React from 'react';
-import { ComponentType } from '../types/board.types';
 import { Square, Server, Database, Circle, User, CircleDashed } from 'lucide-react';
 
 interface SidebarProps {

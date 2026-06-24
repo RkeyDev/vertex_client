@@ -3,7 +3,7 @@ import React from 'react';
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onExport: (fileType: 'JPEG' | 'PDF' | 'VERTEX') => void;
+  onExport: (fileType: 'JPEG_ZIP' | 'PDF' | 'VERTEX') => void;
   exportError: string | null;
   exportSuccess: boolean;
 }
@@ -36,7 +36,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
 
         <div className="flex flex-col space-y-4">
           {[
-            { type: 'JPEG',   label: 'Image',        desc: 'Download standard JPEG image file' },
+            { type: 'JPEG_ZIP',   label: 'Image',        desc: 'Download standard JPEG image file' },
             { type: 'PDF',    label: 'PDF Document', desc: 'Save board as a printable PDF document' },
             { type: 'VERTEX', label: '.Vertex File', desc: 'Custom file type to import back later' },
           ].map((opt) => (

@@ -30,6 +30,8 @@ interface Board {
   id: string;
   boardName: string;
   lastSaved: string;
+  thumbnailDataUrl?: string | null;
+  thumbnail_data_url?: string | null;
 }
 
 interface JoinBoardRequestDTO {
@@ -403,6 +405,7 @@ const DashboardPage: React.FC = () => {
                   title={project.boardName}
                   lastSaved={formatLastSaved(project.lastSaved)}
                   avatarUrl={user?.avatarUrl}
+                  thumbnailUrl={project.thumbnailDataUrl ?? project.thumbnail_data_url ?? undefined}
                   initials={getInitials()}
                   isOwner={true}
                   onClick={() => handleProjectClick(project.boardName)}

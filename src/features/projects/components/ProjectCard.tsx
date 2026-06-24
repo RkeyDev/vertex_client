@@ -4,6 +4,7 @@ interface ProjectCardProps {
   title: string;
   lastSaved: string;
   avatarUrl?: string;
+  thumbnailUrl?: string;
   initials: string;
   isOwner?: boolean;
   onClick: () => void;
@@ -14,6 +15,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
   title,
   lastSaved,
   avatarUrl,
+  thumbnailUrl,
   initials,
   isOwner,
   onClick,
@@ -29,8 +31,17 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
       className="bg-white rounded-xl shadow-xl overflow-hidden cursor-pointer hover:scale-105 transition-transform duration-200 flex flex-col relative"
     >
       {/* Thumbnail Area */}
-      <div className="h-48 bg-white p-6 flex items-center justify-center relative overflow-hidden">
-        {/* Project preview placeholder */}
+      <div className="h-48 bg-white flex items-center justify-center relative overflow-hidden">
+        {thumbnailUrl ? (
+          <img
+            src={thumbnailUrl}
+            alt={`${title} thumbnail`}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="h-full w-full bg-white" />
+        )}
 
         {/* Delete button - only visible when owner hovers */}
         {isOwner && isHovered && onDeleteClick && (

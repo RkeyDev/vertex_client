@@ -65,7 +65,9 @@ const CanvasNode = memo(forwardRef<any, CanvasNodeProps>(({
 
   const renderShape = () => {
     const props = { component, isSelected };
-    const shapeType = component.data?.shapeType || component.type;
+    const shapeType = component.type === ComponentType.CLASS
+      ? component.data?.shapeType || component.type
+      : component.type;
     switch (shapeType) {
       case ComponentType.SERVER: return <ServerShape {...props} />;
       case ComponentType.DATABASE: return <DatabaseShape {...props} />;
