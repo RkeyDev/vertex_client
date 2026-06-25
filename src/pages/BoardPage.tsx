@@ -35,7 +35,7 @@ import LoadingScreen from '../features/board/components/LoadingScreen';
 type ExportFileType = 'JPEG_ZIP' | 'PDF' | 'VERTEX';
 type InternalExportFileType = ExportFileType | 'JPEG_THUMBNAIL';
 
-const THUMBNAIL_EXPORT_IDLE_MS = 20_000;
+const THUMBNAIL_EXPORT_IDLE_MS = 500;
 
 const BoardPage: React.FC = () => {
   const location      = useLocation();
