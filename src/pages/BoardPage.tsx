@@ -195,13 +195,13 @@ const BoardPage: React.FC = () => {
     }
   };
 
-  const { sendCursorPosition, seedProfiles } = useCursorSocket({
-    boardToken,
-    cursorId,
-    username:  currentUser.username,
-    avatarUrl: currentUser.avatarUrl,
-    onCursorUpdate: setRemoteCursors,
-  });
+const { sendCursorPosition, seedProfiles } = useCursorSocket({
+  boardToken,
+  cursorId,
+  username:  currentUser.username,
+  avatarUrl: currentUser.avatarUrl?.startsWith('http') ? currentUser.avatarUrl : undefined,
+  onCursorUpdate: setRemoteCursors,
+});
 
   useEffect(() => {
     if (!boardToken) return;
@@ -539,7 +539,11 @@ const BoardPage: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen bg-[#1a1a1a] overflow-hidden">
-      <Sidebar onAddComponent={addComponent} />
+    <Sidebar
+      onAddComponent={addComponent}
+      username={currentUser.username}
+      avatarUrl={currentUser.avatarUrl}
+    />
 
       <main className="flex-1 flex flex-col relative bg-[#242424]">
         <TopBar 

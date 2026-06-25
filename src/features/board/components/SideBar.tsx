@@ -3,9 +3,15 @@ import { Square, Server, Database, Circle, User, CircleDashed } from 'lucide-rea
 
 interface SidebarProps {
   onAddComponent: (type: string) => void;
+  username?: string;
+  avatarUrl?: string | null;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onAddComponent }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onAddComponent, username, avatarUrl }) => {
+  const initials = username
+    ? username.slice(0, 2).toUpperCase()
+    : '??';
+
   return (
     <aside className="w-64 bg-[#EAEAEA] border-r border-gray-400 flex flex-col p-4 shadow-xl z-10">
       <h1 className="text-5xl font-black text-[#333] mb-12">Vertex</h1>
@@ -69,10 +75,23 @@ const Sidebar: React.FC<SidebarProps> = ({ onAddComponent }) => {
         </div>
       </section>
 
-      <div className="mt-auto p-4">
-        <div className="w-16 h-16 bg-[#2C3E50] rounded-full flex items-center justify-center text-white font-bold text-2xl shadow-lg">
-          RK
+      <div className="mt-auto p-3 flex items-center gap-3 bg-white border border-gray-300 rounded-xl shadow-sm">
+        <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-gray-300 ring-offset-2 ring-offset-white shrink-0">
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={username ?? 'User avatar'}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full bg-[#2C3E50] flex items-center justify-center text-white font-bold text-sm">
+              {initials}
+            </div>
+          )}
         </div>
+        <span className="text-sm font-medium text-[#333] truncate">
+          {username ?? 'Anonymous'}
+        </span>
       </div>
     </aside>
   );

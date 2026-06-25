@@ -8,16 +8,12 @@ export function useCurrentUser(): { userId: string; username: string; avatarUrl:
   const lastName: string  = user?.lastName  ?? '';
   const fullName = (firstName + ' ' + lastName).trim();
 
-  // Never pass base64 data URLs as the avatar — WebSocket query strings
-  // have length limits. Only pass http/https URLs.
   const rawAvatar: string | undefined = user?.avatarUrl;
-  const safeAvatarUrl =
-    rawAvatar && rawAvatar.startsWith('http') ? rawAvatar : undefined;
 
   return {
     userId:    user?.username ?? 'anon-' + Math.random().toString(36).slice(2),
     username:  fullName || user?.username || 'Anonymous',
-    avatarUrl: safeAvatarUrl,
+    avatarUrl: rawAvatar,   // return as-is; callers decide what to do with it
     email:     (user?.email as string) ?? null,
   };
 }
