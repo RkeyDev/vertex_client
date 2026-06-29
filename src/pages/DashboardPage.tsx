@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axiosInstance';
 import ProjectCard from '../../src/features/projects/components/ProjectCard.tsx';
@@ -191,6 +191,7 @@ const DeleteBoardModal: React.FC<DeleteModalProps> = ({
 
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [projects, setProjects] = useState<Board[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -292,17 +293,66 @@ const DashboardPage: React.FC = () => {
     }
   };
 
-  const handleProjectClick = async (name: string) => {
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    e.target.value = '';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setIsLoading(true);
+      const response = await api.post<ApiResponse<JoinBoardRoomResponseDTO>>('/board/import', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      const { responseCode, data } = response.data;
+      if (responseCode === '200' && data?.boardToken) {
+        const cursorId = data.currentUserProfileId != null
+          ? parseInt(data.currentUserProfileId, 10)
+          : undefined;
+
+        if (data.profiles) {
+          sessionStorage.setItem(
+            `vertex_cursor_profiles:${data.boardToken}`,
+            JSON.stringify(data.profiles)
+          );
+        }
+        if (cursorId != null && Number.isFinite(cursorId)) {
+          sessionStorage.setItem(`vertex_cursor_id:${data.boardToken}`, String(cursorId));
+        }
+
+        navigate(`/board?id=${data.boardToken}`, {
+          state: {
+            cursorProfiles: data.profiles ?? [],
+            cursorId: Number.isFinite(cursorId) ? cursorId : undefined,
+          },
+        });
+      } else {
+        alert(response.data.message || 'Import failed.');
+      }
+    } catch (err: any) {
+      console.error('Import error:', err);
+      alert(err.message || 'An error occurred during import.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleProjectClick = async (name?: string, token?: string) => {
     if (!user?.username) {
       alert('User session data missing. Please log in again.');
       return;
     }
 
     try {
-      const payload: JoinBoardRequestDTO = {
-        boardName: name,
-        ownerEmail: user.username,
-      };
+      const payload: JoinBoardRequestDTO = token
+        ? { boardToken: token }
+        : { boardName: name, ownerEmail: user.username };
 
       const response = await api.post<ApiResponse<JoinBoardRoomResponseDTO>>('/board/join-room', payload);
       console.log('RAW join-room response:', JSON.stringify(response.data, null, 2));
@@ -382,9 +432,27 @@ const DashboardPage: React.FC = () => {
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-[#EAEAEA] h-20 flex items-center justify-between px-12 border-b border-gray-300 shadow-sm">
           <h2 className="text-5xl font-bold text-[#333]">Dashboard</h2>
-          <button onClick={() => setIsModalOpen(true)} className="bg-[#EAEAEA] hover:bg-gray-300 border-2 border-gray-400 rounded px-4 py-1 transition-all">
-            <span className="text-2xl font-bold text-[#333]">+ New</span>
-          </button>
+          <div className="flex items-center space-x-4">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileImport}
+              accept=".vertex"
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="bg-[#EAEAEA] hover:bg-gray-300 border-2 border-gray-400 rounded px-4 py-1 transition-all cursor-pointer"
+            >
+              <span className="text-2xl font-bold text-[#333]">Import</span>
+            </button>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="bg-[#EAEAEA] hover:bg-gray-300 border-2 border-gray-400 rounded px-4 py-1 transition-all cursor-pointer"
+            >
+              <span className="text-2xl font-bold text-[#333]">+ New</span>
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-12 bg-transparent">
